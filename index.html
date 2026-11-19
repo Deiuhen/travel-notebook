@@ -445,17 +445,32 @@ var Sync = (function () {
 /* ================= Google Maps ================= */
 function isUrl(s) { return /^https?:\/\//i.test(String(s).trim()); }
 function q(where) { where = String(where || '').trim(); var p = (T.place || '').trim(); if (p && where.toLowerCase().indexOf(p.toLowerCase()) < 0) where += ' ' + p; return where; }
-function gSearch(where) { return isUrl(where) ? where.trim() : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q(where)); }
-function gRoute(list) {
-  list = list.filter(function (w) { return w && String(w).trim() && !isUrl(w); }).map(q);
+/* 在地图上手动校准过的地点：Google 链接一律用校准后的坐标 */
+function pinned(rec, raw) { return !!(rec && rec.llm === 'manual' && Array.isArray(rec.ll) && rec.llq === String(raw || '').trim()); }
+function gTarget(where, rec) {
+  if (pinned(rec, where)) return rec.ll[0] + ',' + rec.ll[1];
+  var c = llFromUrl(where); if (c) return c[0] + ',' + c[1];
+  return isUrl(where) ? '' : q(where);
+}
+function gSearch(where, rec) {
+  var t = gTarget(where, rec);
+  if (!t) return String(where).trim(); // 没有坐标的分享短链接，直接打开原链接
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(t);
+}
+function gRoute(list) { // list: [[地点文字, 记录], ...]
+  list = list.filter(function (x) { return x[0] && String(x[0]).trim(); }).map(function (x) { return gTarget(x[0], x[1]); }).filter(Boolean);
   if (!list.length) return '';
-  if (list.length === 1) return gSearch(list[0]);
+  if (list.length === 1) return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(list[0]);
   var u = 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(list[0]) + '&destination=' + encodeURIComponent(list[list.length - 1]);
   var mid = list.slice(1, -1).slice(0, 9);
   if (mid.length) u += '&waypoints=' + mid.map(encodeURIComponent).join('%7C');
   return u + '&travelmode=' + T.mode;
 }
-function mapA(where, t) { return where && String(where).trim() ? '<a class="map" href="' + esc(gSearch(where)) + '" target="_blank" rel="noopener" title="' + (t || '在 Google 地图打开') + '">📍</a>' : '<span class="map" style="opacity:.2">📍</span>'; }
+function mapA(where, t, rec) {
+  if (!where || !String(where).trim()) return '<span class="map" style="opacity:.2">📍</span>';
+  var pin = pinned(rec, where);
+  return '<a class="map" href="' + esc(gSearch(where, rec)) + '" target="_blank" rel="noopener" title="' + (pin ? '按你在地图上校准的位置打开 Google 地图' : (t || '在 Google 地图打开')) + '">' + (pin ? '📌' : '📍') + '</a>';
+}
 function previewBtn(l, id, where) { return where && String(where).trim() ? '<button class="map" data-act="preview" data-l="' + l + '" data-id="' + id + '" title="在下方行程地图里查看">👁</button>' : ''; }
 
 /* ================= 行程地图（Leaflet + OpenStreetMap，免 Key） ================= */
@@ -490,7 +505,7 @@ function drawMap() {
     M.map = L.map('lmap', { zoomControl: true, worldCopyJump: true }).setView([25, 110], 3);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(M.map);
     M.layer = L.layerGroup().addTo(M.map);
-    M.map.on('popupopen', function (e) { e.popup.getElement().querySelectorAll('[data-act=pick]').forEach(function (x) { x.onclick = function () { startPick(x.dataset.l, x.dataset.id); }; }); });
+    M.map.on('popupopen', function (e) { e.popup.getElement().querySelectorAll('[data-act=pick],[data-act=unpin]').forEach(function (x) { x.onclick = function () { if (x.dataset.act === 'pick') startPick(x.dataset.l, x.dataset.id); else unpin(x.dataset.l, x.dataset.id); }; }); });
     M.map.on('click', function (e) { if (M.pick) { setGeo(M.pick.l, M.pick.id, [+e.latlng.lat.toFixed(6), +e.latlng.lng.toFixed(6)], 'manual', M.pick.key); endPick(); } });
   }
   setTimeout(function () { M.map.invalidateSize(); }, 0);
@@ -510,8 +525,8 @@ function drawMap() {
     var sz = p.day === -1 ? 16 : 24;
     var mk = L.marker(ll, { icon: L.divIcon({ className: 'pinw', html: html, iconSize: [sz, sz], iconAnchor: p.day >= 0 ? [12, 24] : [sz / 2, sz / 2], popupAnchor: [0, -18] }), draggable: true, title: p.label });
     mk.bindPopup('<b>' + esc(p.label) + '</b><br><span style="color:#868e96">' + esc(p.sub) + '</span><br>' +
-      '<a href="' + esc(gSearch(p.raw)) + '" target="_blank" rel="noopener">在 Google 地图打开</a> · <button data-act="pick" data-l="' + p.l + '" data-id="' + p.r.id + '">位置不对？重新点选</button>' +
-      (p.r.llm === 'manual' ? '' : '<br><span style="color:#868e96;font-size:11px">自动定位，也可以直接拖动图钉</span>'));
+      '<a href="' + esc(gSearch(p.raw, p.r)) + '" target="_blank" rel="noopener">在 Google 地图打开</a> · <button data-act="pick" data-l="' + p.l + '" data-id="' + p.r.id + '">位置不对？重新点选</button>' +
+      (pinned(p.r, p.raw) ? '<br><span style="color:#868e96;font-size:11px">📌 已手动校准，Google 地图和路线都按这个位置 · </span><button data-act="unpin" data-l="' + p.l + '" data-id="' + p.r.id + '">恢复自动定位</button>' : '<br><span style="color:#868e96;font-size:11px">自动定位，拖动图钉或重新点选后，Google 地图也会改用新位置</span>'));
     mk.on('dragend', function () { var x = mk.getLatLng(); setGeo(p.l, p.r.id, [+x.lat.toFixed(6), +x.lng.toFixed(6)], 'manual', geoKey(p)); });
     mk.addTo(M.layer); M.markers[p.l + p.r.id] = mk; bounds.push(ll);
   });
@@ -540,8 +555,9 @@ function startPick(l, id) {
 function endPick() { M.pick = null; $('#pickBar').hidden = true; $('#mapCard').classList.remove('picking'); }
 function setGeo(l, id, ll, how, key) {
   set('F|' + l + '|' + id + '|ll', ll); set('F|' + l + '|' + id + '|llq', key); setF(l, id, 'llm', how);
-  drawMap();
+  rerender();
 }
+function unpin(l, id) { if (M.map) M.map.closePopup(); set('F|' + l + '|' + id + '|llm', ''); setF(l, id, 'llq', ''); rerender(); }
 
 /* 地名 → 坐标：Nominatim 为主，Photon 兜底；每秒最多 1 次，结果同步给所有旅伴 */
 var G = { q: [], inq: {}, busy: false, placeBusy: false };
@@ -695,18 +711,18 @@ V.plan = function () {
     return '<tr><td class="w-s">' + sel('book', b.id, 'type', b.type, ['去程', '住宿', '返程', '交通', '门票', '其他']) + '</td><td class="w-m">' + inp('book', b.id, 'date', b.date, '日期') + '</td>' +
       '<td>' + inp('book', b.id, 'detail', b.detail, b.type === '住宿' ? '酒店名 / 地址' : '航班 / 车次') + '</td>' +
       '<td class="w-s">' + sel('book', b.id, 'status', b.status, ['未订', '已订', '已付', '已取消']) + '</td>' +
-      '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? previewBtn('book', b.id, b.detail) + mapA(b.detail, '酒店位置') : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
+      '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? previewBtn('book', b.id, b.detail) + mapA(b.detail, '酒店位置', b) : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
   }).join('');
   var days = T.days.map(function (d, i) {
     var its = T.items.filter(function (it) { return it.day === d.id; });
-    var route = gRoute(its.map(function (it) { return it.where; }));
+    var route = gRoute(its.map(function (it) { return [it.where, it]; }));
     return '<div class="dayhd"><span class="lbl">Day ' + (i + 1) + '</span><span class="meta">' + dayDate(i) + '</span>' +
       '<input data-l="days" data-id="' + d.id + '" data-f="label" value="' + esc(d.label) + '" placeholder="这天的主题，如 浅草 + 晴空塔">' +
       (route ? '<a class="btn sm" href="' + esc(route) + '" target="_blank" rel="noopener" title="按顺序在 Google 地图规划路线">🧭 当天路线</a>' : '') +
       (T.days.length > 1 ? xBtn('days', d.id) : '') + '</div>' +
       '<table class="grid">' + its.map(function (it) {
         return '<tr><td class="w-s">' + inp('items', it.id, 'time', it.time, '时间') + '</td><td>' + inp('items', it.id, 'what', it.what, '安排') + '</td>' +
-          '<td class="w-l"><div class="cellwrap">' + inp('items', it.id, 'where', it.where, '地点 / 地址 / Maps 链接') + previewBtn('items', it.id, it.where) + mapA(it.where) + '</div></td><td class="w-xs">' + xBtn('items', it.id) + '</td></tr>';
+          '<td class="w-l"><div class="cellwrap">' + inp('items', it.id, 'where', it.where, '地点 / 地址 / Maps 链接') + previewBtn('items', it.id, it.where) + mapA(it.where, '', it) + '</div></td><td class="w-xs">' + xBtn('items', it.id) + '</td></tr>';
       }).join('') + '</table>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="add" data-act="additem" data-id="' + d.id + '">+ 安排</button>' + wishPick(d.id) + '</div>';
   }).join('');
@@ -719,7 +735,7 @@ V.wish = function () {
     var it = T.items.find(function (it) { return it.wish === w.id; });
     var placed = it ? T.days.findIndex(function (d) { return d.id === it.day; }) : -1;
     return '<tr><td class="w-s">' + sel('wish', w.id, 'cat', w.cat, CATS) + '</td><td>' + inp('wish', w.id, 'name', w.name, '名称') + '</td>' +
-      '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'where', w.where, '地址（空=用名称搜）') + previewBtn('wish', w.id, w.where || w.name) + mapA(w.where || w.name) + '</div></td>' +
+      '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'where', w.where, '地址（空=用名称搜）') + previewBtn('wish', w.id, w.where || w.name) + mapA(w.where || w.name, '', w) + '</div></td>' +
       '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'link', w.link, '小红书 / 攻略链接') + (isUrl(w.link) ? '<a class="map" href="' + esc(w.link) + '" target="_blank" rel="noopener">↗</a>' : '') + '</div></td>' +
       '<td>' + inp('wish', w.id, 'note', w.note, '备注 / 避雷') + '</td>' +
       '<td class="w-m">' + (placed >= 0 ? '<span class="pill">已排 Day ' + (placed + 1) + '</span>' : '<select data-act="toDay" data-id="' + w.id + '"><option value="">排进…</option>' + T.days.map(function (d, i) { return '<option value="' + d.id + '">Day ' + (i + 1) + '</option>'; }).join('') + '</select>') + '</td>' +
@@ -781,7 +797,9 @@ document.addEventListener('change', function (e) {
   if (a === 'part') { var b = find('bills', el.dataset.id), m = el.dataset.m; setF('bills', b.id, 'parts', el.checked ? b.parts.concat(m) : b.parts.filter(function (x) { return x !== m; })); renderView(); return; }
   if ((a === 'toDay' || a === 'pickwish') && el.value) {
     var w = find('wish', a === 'toDay' ? el.dataset.id : el.value), day = a === 'toDay' ? el.value : el.dataset.id;
-    add('items', { day: day, what: w.name, where: w.where || w.name, wish: w.id }); renderView(); if (a === 'toDay') toast('已排进日程'); return;
+    var ni = { day: day, what: w.name, where: w.where || w.name, wish: w.id };
+    if (Array.isArray(w.ll) && w.llq === String(ni.where).trim()) { ni.ll = w.ll; ni.llq = w.llq; ni.llm = w.llm; } // 带上已定位/校准的坐标
+    add('items', ni); renderView(); if (a === 'toDay') toast('已排进日程'); return;
   }
   if (el.tagName === 'SELECT' && el.dataset.l) { setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value); renderView(); return; }
   if (el.tagName === 'INPUT' && el.dataset.l) {
