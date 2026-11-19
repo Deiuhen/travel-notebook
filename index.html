@@ -102,7 +102,26 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 .lri{display:flex;align-items:center;border-top:1px solid var(--ln)}
 .lri a{flex:1;display:flex;justify-content:space-between;padding:10px 4px;text-decoration:none;color:var(--t1)}
 .lri a span{color:var(--t3);font-family:ui-monospace,Menlo,monospace;font-size:12px}
-@media (max-width:600px){#title{font-size:22px}.mapbox{height:240px}.grid input,.grid select{padding:8px 6px}}
+/* 行程地图 */
+.lmap{height:420px;background:var(--bg);z-index:0}
+.mapdays{display:flex;gap:4px;flex-wrap:wrap;flex:1}
+.mapdays button{border:1px solid var(--ln);background:var(--sf);border-radius:999px;font-size:11px;padding:2px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.mapdays button.on{border-color:var(--bd);font-weight:600;background:var(--al)}
+.mapdays i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.pinw{background:none;border:0}
+.pin{width:24px;height:24px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+.pin b{transform:rotate(45deg);color:#fff;font:700 11px/1 -apple-system,sans-serif}
+.pin.wish{width:16px;height:16px;border-radius:50%;transform:none;background:#868e96}
+.pin.hotel{border-radius:6px;transform:none;background:#fff;border-color:#333;font-size:13px}
+.miss{padding:8px 14px;font-size:12px;color:var(--t2);border-top:1px solid var(--ln)}
+.miss button{border:0;background:none;color:var(--ac);cursor:pointer;font-size:12px;padding:0 4px}
+.picking .lmap,.picking .leaflet-container,.picking .leaflet-interactive{cursor:crosshair!important}
+.pickbar{padding:6px 14px;background:var(--al);font-size:12px;font-weight:600}
+.leaflet-popup-content{font-size:13px;line-height:1.5;margin:10px 12px}
+.leaflet-popup-content a{color:#d9480f}
+.leaflet-popup-content button{border:0;background:none;color:#1c7ed6;cursor:pointer;padding:0;font-size:12px}
+.steps{padding-left:20px;margin:8px 0;font-size:13px;line-height:1.9}
+@media (max-width:600px){#title{font-size:22px}.mapbox{height:240px}.lmap{height:340px}.grid input,.grid select{padding:8px 6px}}
 @media print{.tools,#tabs,.x,.add,.mapbox{display:none!important}}
 </style>
 </head>
@@ -136,7 +155,27 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 <div id="mems"></div>
 <nav id="tabs"></nav>
 <main id="view"></main>
+<div class="card" id="mapCard" hidden>
+  <div class="hd"><b>行程地图</b><div class="mapdays" id="mapDays"></div><button class="btn sm" data-act="kml" title="导出后导入 Google My Maps，手机 Google 地图里就能看到">导出到 Google My Maps</button></div>
+  <div class="pickbar" id="pickBar" hidden></div>
+  <div class="lmap" id="lmap"></div>
+  <div class="miss" id="mapMiss"></div>
 </div>
+</div>
+
+<div class="modal" id="kmlM" hidden><div class="card">
+  <div class="hd"><b>导入到 Google My Maps</b><button class="x" data-close>×</button></div>
+  <div class="bd">
+    <p class="meta" style="margin-top:0" id="kmlInfo"></p>
+    <ol class="steps">
+      <li>打开 <a href="https://www.google.com/maps/d/" target="_blank" rel="noopener">Google My Maps</a>，点「创建新地图」</li>
+      <li>在左侧图层里点「导入」，选刚才下载的 <b>.kml</b> 文件</li>
+      <li>手机打开 Google 地图 → 「已保存」→「地图」，就能看到这张图（同一个 Google 账号）</li>
+    </ol>
+    <p class="meta">行程改了以后，重新导出，在 My Maps 里删掉旧图层再导入一次即可。</p>
+    <div class="row"><button class="btn p" id="kmlAgain">再下载一次</button></div>
+  </div>
+</div></div>
 
 <div class="modal" id="shareM" hidden><div class="card">
   <div class="hd"><b>邀请旅伴</b><button class="x" data-close>×</button></div>
@@ -164,6 +203,8 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 </div></div>
 <div class="toast" id="toast"></div>
 
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/nostr-tools@2.10.4/lib/nostr.bundle.js"></script>
 <script>
 (function () {
@@ -405,7 +446,6 @@ var Sync = (function () {
 function isUrl(s) { return /^https?:\/\//i.test(String(s).trim()); }
 function q(where) { where = String(where || '').trim(); var p = (T.place || '').trim(); if (p && where.toLowerCase().indexOf(p.toLowerCase()) < 0) where += ' ' + p; return where; }
 function gSearch(where) { return isUrl(where) ? where.trim() : 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q(where)); }
-function gEmbed(where) { return 'https://maps.google.com/maps?q=' + encodeURIComponent(q(where) || T.place || 'world') + '&z=14&output=embed'; }
 function gRoute(list) {
   list = list.filter(function (w) { return w && String(w).trim() && !isUrl(w); }).map(q);
   if (!list.length) return '';
@@ -416,11 +456,175 @@ function gRoute(list) {
   return u + '&travelmode=' + T.mode;
 }
 function mapA(where, t) { return where && String(where).trim() ? '<a class="map" href="' + esc(gSearch(where)) + '" target="_blank" rel="noopener" title="' + (t || '在 Google 地图打开') + '">📍</a>' : '<span class="map" style="opacity:.2">📍</span>'; }
-function previewBtn(where) { return where && String(where).trim() && !isUrl(where) ? '<button class="map" data-act="preview" data-w="' + esc(where) + '" title="在下方地图预览">👁</button>' : ''; }
+function previewBtn(l, id, where) { return where && String(where).trim() ? '<button class="map" data-act="preview" data-l="' + l + '" data-id="' + id + '" title="在下方行程地图里查看">👁</button>' : ''; }
+
+/* ================= 行程地图（Leaflet + OpenStreetMap，免 Key） ================= */
+var COLORS = ['#e8590c', '#1c7ed6', '#2f9e44', '#ae3ec9', '#f08c00', '#0c8599', '#e64980', '#5c940d', '#4263eb', '#c92a2a'];
+function dayColor(i) { return COLORS[i % COLORS.length]; }
+var M = { map: null, layer: null, filter: 'all', pick: null, markers: {}, fitKey: '' };
+function mapPoints() {
+  var out = [];
+  T.days.forEach(function (d, i) {
+    T.items.filter(function (it) { return it.day === d.id && String(it.where || '').trim(); }).forEach(function (it, j) {
+      out.push({ l: 'items', r: it, raw: it.where, day: i, n: j + 1, label: it.what || it.where, sub: (it.time ? it.time + ' · ' : '') + 'Day ' + (i + 1) });
+    });
+  });
+  T.wish.forEach(function (w) {
+    if (T.items.some(function (it) { return it.wish === w.id; })) return;
+    var raw = String(w.where || w.name || '').trim(); if (raw) out.push({ l: 'wish', r: w, raw: raw, day: -1, label: w.name || raw, sub: '想去 · ' + w.cat + (w.note ? ' · ' + w.note : '') });
+  });
+  T.book.forEach(function (b) { if (b.type === '住宿' && String(b.detail || '').trim()) out.push({ l: 'book', r: b, raw: b.detail, day: -2, label: b.detail, sub: '住宿' + (b.date ? ' · ' + b.date : '') }); });
+  return out;
+}
+function llFromUrl(s) {
+  s = String(s); var m = s.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) || s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) || s.match(/[?&](?:q|query|ll|destination)=(-?\d+\.\d+)(?:,|%2C)(-?\d+\.\d+)/) || s.match(/^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/);
+  return m ? [parseFloat(m[1]), parseFloat(m[2])] : null;
+}
+function geoKey(p) { return String(p.raw).trim(); }
+function located(p) { return Array.isArray(p.r.ll) && p.r.llq === geoKey(p); }
+function drawMap() {
+  var card = $('#mapCard'), show = tab === 'plan' || tab === 'wish';
+  card.hidden = !show; if (!show) return;
+  if (!window.L) { $('#lmap').innerHTML = '<div class="empty">地图组件没加载出来，检查一下网络。</div>'; return; }
+  if (!M.map) {
+    M.map = L.map('lmap', { zoomControl: true, worldCopyJump: true }).setView([25, 110], 3);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(M.map);
+    M.layer = L.layerGroup().addTo(M.map);
+    M.map.on('popupopen', function (e) { e.popup.getElement().querySelectorAll('[data-act=pick]').forEach(function (x) { x.onclick = function () { startPick(x.dataset.l, x.dataset.id); }; }); });
+    M.map.on('click', function (e) { if (M.pick) { setGeo(M.pick.l, M.pick.id, [+e.latlng.lat.toFixed(6), +e.latlng.lng.toFixed(6)], 'manual', M.pick.key); endPick(); } });
+  }
+  setTimeout(function () { M.map.invalidateSize(); }, 0);
+  if (M.filter !== 'all' && M.filter >= T.days.length) M.filter = 'all';
+  $('#mapDays').innerHTML = '<button data-mf="all"' + (M.filter === 'all' ? ' class="on"' : '') + '>全部</button>' + T.days.map(function (d, i) {
+    return '<button data-mf="' + i + '"' + (M.filter === i ? ' class="on"' : '') + '><i style="background:' + dayColor(i) + '"></i>Day ' + (i + 1) + '</button>';
+  }).join('');
+  var pts = mapPoints(), miss = [], lines = {}, bounds = [];
+  M.layer.clearLayers(); M.markers = {};
+  pts.forEach(function (p) {
+    if (M.filter !== 'all' && p.day !== M.filter && p.day !== -2) return;
+    if (!located(p)) { miss.push(p); queueGeo(p); return; }
+    var ll = p.r.ll, html;
+    if (p.day >= 0) { html = '<div class="pin" style="background:' + dayColor(p.day) + '"><b>' + p.n + '</b></div>'; (lines[p.day] = lines[p.day] || []).push(ll); }
+    else if (p.day === -1) html = '<div class="pin wish"></div>';
+    else html = '<div class="pin hotel">🏨</div>';
+    var sz = p.day === -1 ? 16 : 24;
+    var mk = L.marker(ll, { icon: L.divIcon({ className: 'pinw', html: html, iconSize: [sz, sz], iconAnchor: p.day >= 0 ? [12, 24] : [sz / 2, sz / 2], popupAnchor: [0, -18] }), draggable: true, title: p.label });
+    mk.bindPopup('<b>' + esc(p.label) + '</b><br><span style="color:#868e96">' + esc(p.sub) + '</span><br>' +
+      '<a href="' + esc(gSearch(p.raw)) + '" target="_blank" rel="noopener">在 Google 地图打开</a> · <button data-act="pick" data-l="' + p.l + '" data-id="' + p.r.id + '">位置不对？重新点选</button>' +
+      (p.r.llm === 'manual' ? '' : '<br><span style="color:#868e96;font-size:11px">自动定位，也可以直接拖动图钉</span>'));
+    mk.on('dragend', function () { var x = mk.getLatLng(); setGeo(p.l, p.r.id, [+x.lat.toFixed(6), +x.lng.toFixed(6)], 'manual', geoKey(p)); });
+    mk.addTo(M.layer); M.markers[p.l + p.r.id] = mk; bounds.push(ll);
+  });
+  Object.keys(lines).forEach(function (d) { if (lines[d].length > 1) L.polyline(lines[d], { color: dayColor(+d), weight: 3, opacity: .75, dashArray: '6 6' }).addTo(M.layer); });
+  var key = M.filter + ':' + bounds.length;
+  if (key !== M.fitKey) {
+    M.fitKey = key;
+    if (bounds.length > 1) M.map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+    else if (bounds.length === 1) M.map.setView(bounds[0], 14);
+    else if (Array.isArray(T.placeLL) && T.placeLLq === T.place) M.map.setView(T.placeLL, 11);
+  }
+  if (T.place && T.placeLLq !== T.place) queuePlace();
+  $('#mapMiss').innerHTML = (miss.length ? '还没定位：' + miss.map(function (p) {
+    var st = p.r.llq === geoKey(p) && p.r.llm === 'fail' ? '（没找到）' : G.inq[p.l + p.r.id] ? '（定位中…）' : '';
+    return esc(p.label) + st + '<button data-act="pick" data-l="' + p.l + '" data-id="' + p.r.id + '">在地图上点选</button>';
+  }).join(' · ') + '<br>' : '') + '<span class="meta">彩色序号 = 当天顺序（虚线只表示先后，不是实际路线）· 灰点 = 还没排进日程的「想去」· 图钉可拖动校准 · 地点栏可粘贴含坐标的 Google Maps 链接</span>';
+}
+function startPick(l, id) {
+  var r = find(l, id); if (!r) return;
+  var p = mapPoints().find(function (x) { return x.l === l && x.r.id === id; });
+  M.pick = { l: l, id: id, key: p ? geoKey(p) : '' };
+  if (M.map) M.map.closePopup();
+  $('#pickBar').hidden = false; $('#pickBar').innerHTML = '在地图上点一下，放置「' + esc(p ? p.label : '') + '」 <button class="add" data-act="unpick">取消</button>';
+  $('#mapCard').classList.add('picking'); $('#mapCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function endPick() { M.pick = null; $('#pickBar').hidden = true; $('#mapCard').classList.remove('picking'); }
+function setGeo(l, id, ll, how, key) {
+  set('F|' + l + '|' + id + '|ll', ll); set('F|' + l + '|' + id + '|llq', key); setF(l, id, 'llm', how);
+  drawMap();
+}
+
+/* 地名 → 坐标：Nominatim 为主，Photon 兜底；每秒最多 1 次，结果同步给所有旅伴 */
+var G = { q: [], inq: {}, busy: false, placeBusy: false };
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function queueGeo(p) {
+  var k = p.l + p.r.id; if (G.inq[k]) return;
+  if (p.r.llq === geoKey(p)) return; // 之前已试过（包括没找到）
+  var a = document.activeElement; if (a && a.dataset && a.dataset.id === p.r.id) return; // 正在输入，等输完
+  G.inq[k] = 1; G.q.push({ l: p.l, id: p.r.id }); pump();
+}
+function queuePlace() { if (G.placeBusy) return; G.placeBusy = true; var pl = T.place; geocode(pl, null).then(function (ll) { G.placeBusy = false; if (T.place !== pl) return; set('m|placeLL', ll); setM('placeLLq', pl); if (ll && M.map) { M.fitKey = ''; drawMap(); } }); }
+async function pump() {
+  if (G.busy) return; G.busy = true;
+  while (G.q.length) {
+    var job = G.q.shift(); delete G.inq[job.l + job.id];
+    var p = mapPoints().find(function (x) { return x.l === job.l && x.r.id === job.id; });
+    if (!p || located(p)) continue;
+    var key = geoKey(p), ll = llFromUrl(p.raw), how = 'auto';
+    if (!ll && isUrl(p.raw)) { setGeo(p.l, p.r.id, null, 'fail', key); continue; }
+    if (!ll) { ll = await geocode(q(p.raw), p.raw); await sleep(1100); }
+    if (!T) break;
+    setGeo(p.l, p.r.id, ll, ll ? how : 'fail', key);
+  }
+  G.busy = false;
+}
+async function geocode(query, raw) {
+  var c = Array.isArray(T.placeLL) ? T.placeLL : null;
+  var vb = c ? '&viewbox=' + (c[1] - 1) + ',' + (c[0] + 1) + ',' + (c[1] + 1) + ',' + (c[0] - 1) : '';
+  var tries = [query]; if (raw && raw.trim() !== query) tries.push(raw.trim());
+  for (var i = 0; i < tries.length; i++) {
+    try {
+      var r = await fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=' + encodeURIComponent(tries[i]) + vb);
+      var j = await r.json(); if (j && j[0]) return [+(+j[0].lat).toFixed(6), +(+j[0].lon).toFixed(6)];
+    } catch (e) { }
+    try {
+      var r2 = await fetch('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(tries[i]) + (c ? '&lat=' + c[0] + '&lon=' + c[1] : ''));
+      var j2 = await r2.json(); var f = j2 && j2.features && j2.features[0];
+      if (f) return [+f.geometry.coordinates[1].toFixed(6), +f.geometry.coordinates[0].toFixed(6)];
+    } catch (e) { }
+    if (i + 1 < tries.length) await sleep(1100);
+  }
+  return null;
+}
+
+/* ================= 导出 KML → Google My Maps ================= */
+function kmlEsc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+function kmlColor(hex) { return 'ff' + hex.slice(5, 7) + hex.slice(3, 5) + hex.slice(1, 3); }
+function buildKml() {
+  var pts = mapPoints(), ok = pts.filter(located), miss = pts.length - ok.length;
+  var styles = '', folders = '';
+  T.days.forEach(function (d, i) {
+    var c = kmlColor(dayColor(i));
+    styles += '<Style id="d' + i + '"><IconStyle><color>' + c + '</color><scale>1</scale><Icon><href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href></Icon></IconStyle><LabelStyle><scale>0</scale></LabelStyle></Style>' +
+      '<Style id="l' + i + '"><LineStyle><color>' + c + '</color><width>4</width></LineStyle></Style>';
+  });
+  styles += '<Style id="wish"><IconStyle><color>ff969e86</color><Icon><href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href></Icon></IconStyle></Style>' +
+    '<Style id="hotel"><IconStyle><color>ff000000</color><Icon><href>https://www.gstatic.com/mapspro/images/stock/503-wht-blank_maps.png</href></Icon></IconStyle></Style>';
+  function pm(p, style, name) {
+    var desc = [p.sub, p.l === 'items' && p.r.where !== p.label ? p.r.where : '', p.r.link || '', p.r.note || ''].filter(Boolean).join('\n');
+    return '<Placemark><name>' + kmlEsc(name) + '</name><description>' + kmlEsc(desc) + '</description><styleUrl>#' + style + '</styleUrl><Point><coordinates>' + p.r.ll[1] + ',' + p.r.ll[0] + ',0</coordinates></Point></Placemark>';
+  }
+  T.days.forEach(function (d, i) {
+    var dp = ok.filter(function (p) { return p.day === i; }); if (!dp.length) return;
+    var title = 'Day ' + (i + 1) + (dayDate(i) ? ' ' + dayDate(i) : '') + (d.label ? ' · ' + d.label : '');
+    folders += '<Folder><name>' + kmlEsc(title) + '</name>' + dp.map(function (p) { return pm(p, 'd' + i, 'D' + (i + 1) + '-' + p.n + ' ' + p.label); }).join('') +
+      (dp.length > 1 ? '<Placemark><name>' + kmlEsc('Day ' + (i + 1) + ' 顺序') + '</name><styleUrl>#l' + i + '</styleUrl><LineString><tessellate>1</tessellate><coordinates>' + dp.map(function (p) { return p.r.ll[1] + ',' + p.r.ll[0] + ',0'; }).join(' ') + '</coordinates></LineString></Placemark>' : '') + '</Folder>';
+  });
+  var ws = ok.filter(function (p) { return p.day === -1; }), hs = ok.filter(function (p) { return p.day === -2; });
+  if (ws.length) folders += '<Folder><name>想去（未排）</name>' + ws.map(function (p) { return pm(p, 'wish', p.label); }).join('') + '</Folder>';
+  if (hs.length) folders += '<Folder><name>住宿</name>' + hs.map(function (p) { return pm(p, 'hotel', '🏨 ' + p.label); }).join('') + '</Folder>';
+  var xml = '<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>' + kmlEsc(T.title || '我的旅行') + '</name>' + styles + folders + '</Document></kml>';
+  return { xml: xml, ok: ok.length, miss: miss };
+}
+function downloadKml() {
+  var k = buildKml();
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([k.xml], { type: 'application/vnd.google-earth.kml+xml' }));
+  a.download = (T.title || 'trip') + '.kml'; a.click();
+  return k;
+}
 
 /* ================= 渲染 ================= */
 var TABS = [['pack', '清单'], ['plan', '行程'], ['wish', '想去'], ['bill', '账本'], ['note', '随手记']];
-var tab = ls('gtrip:tab') || 'plan', preview = '';
+var tab = ls('gtrip:tab') || 'plan';
 if (!TABS.some(function (x) { return x[0] === tab; })) tab = 'plan';
 function memName(id) { var m = T.members.find(function (m) { return m.id === id; }); return m ? m.name || '未命名' : '?'; }
 function opts(list, cur) { return list.map(function (o) { var v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o; return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join(''); }
@@ -458,13 +662,7 @@ function renderMems() {
   }).join('') + '<button class="add" data-act="addmem">+ 旅伴</button>' + (me ? '' : '<span class="warn">← 点「是我」认领自己，或「+ 旅伴」加上你</span>');
 }
 function renderTabs() { $('#tabs').innerHTML = TABS.map(function (t) { return '<button data-tab="' + t[0] + '"' + (t[0] === tab ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join(''); }
-function renderView() { $('#view').innerHTML = V[tab](); }
-var lastEmbed = '';
-function mapCard() {
-  var w = preview || T.place;
-  return '<div class="card"><div class="hd"><b>地图预览</b><span class="meta">' + (w ? esc(q(w)) : '先在上方填目的地，或点 👁 预览地点') + '</span></div>' +
-    '<div class="mapbox">' + (w ? '<iframe loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="' + esc(gEmbed(w)) + '"></iframe>' : '') + '</div></div>';
-}
+function renderView() { $('#view').innerHTML = V[tab](); drawMap(); }
 
 var V = {};
 V.pack = function () {
@@ -497,7 +695,7 @@ V.plan = function () {
     return '<tr><td class="w-s">' + sel('book', b.id, 'type', b.type, ['去程', '住宿', '返程', '交通', '门票', '其他']) + '</td><td class="w-m">' + inp('book', b.id, 'date', b.date, '日期') + '</td>' +
       '<td>' + inp('book', b.id, 'detail', b.detail, b.type === '住宿' ? '酒店名 / 地址' : '航班 / 车次') + '</td>' +
       '<td class="w-s">' + sel('book', b.id, 'status', b.status, ['未订', '已订', '已付', '已取消']) + '</td>' +
-      '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? mapA(b.detail, '酒店位置') : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
+      '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? previewBtn('book', b.id, b.detail) + mapA(b.detail, '酒店位置') : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
   }).join('');
   var days = T.days.map(function (d, i) {
     var its = T.items.filter(function (it) { return it.day === d.id; });
@@ -508,12 +706,12 @@ V.plan = function () {
       (T.days.length > 1 ? xBtn('days', d.id) : '') + '</div>' +
       '<table class="grid">' + its.map(function (it) {
         return '<tr><td class="w-s">' + inp('items', it.id, 'time', it.time, '时间') + '</td><td>' + inp('items', it.id, 'what', it.what, '安排') + '</td>' +
-          '<td class="w-l"><div class="cellwrap">' + inp('items', it.id, 'where', it.where, '地点 / 地址 / Maps 链接') + previewBtn(it.where) + mapA(it.where) + '</div></td><td class="w-xs">' + xBtn('items', it.id) + '</td></tr>';
+          '<td class="w-l"><div class="cellwrap">' + inp('items', it.id, 'where', it.where, '地点 / 地址 / Maps 链接') + previewBtn('items', it.id, it.where) + mapA(it.where) + '</div></td><td class="w-xs">' + xBtn('items', it.id) + '</td></tr>';
       }).join('') + '</table>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="add" data-act="additem" data-id="' + d.id + '">+ 安排</button>' + wishPick(d.id) + '</div>';
   }).join('');
   return '<div class="card"><div class="hd"><b>交通 & 住宿</b><span class="meta">' + T.book.filter(function (b) { return b.status === '已订' || b.status === '已付'; }).length + ' / ' + T.book.length + ' 已搞定</span></div><div class="scroll"><table class="grid">' + book + '</table></div><button class="add" data-act="addbook">+ 一项</button></div>' +
-    '<div class="card"><div class="hd"><b>每日日程</b><span class="meta">路线方式 <select class="btn sm" id="modeSel">' + opts([['transit', '公共交通'], ['walking', '步行'], ['driving', '驾车'], ['bicycling', '骑行']], T.mode) + '</select></span></div>' + days + '<div class="dayhd"><button class="add" data-act="addday">+ 加一天</button></div></div>' + mapCard();
+    '<div class="card"><div class="hd"><b>每日日程</b><span class="meta">路线方式 <select class="btn sm" id="modeSel">' + opts([['transit', '公共交通'], ['walking', '步行'], ['driving', '驾车'], ['bicycling', '骑行']], T.mode) + '</select></span></div>' + days + '<div class="dayhd"><button class="add" data-act="addday">+ 加一天</button></div></div>';
 };
 V.wish = function () {
   var CATS = ['吃', '玩', '拍', '买', '住', '限定'];
@@ -521,15 +719,15 @@ V.wish = function () {
     var it = T.items.find(function (it) { return it.wish === w.id; });
     var placed = it ? T.days.findIndex(function (d) { return d.id === it.day; }) : -1;
     return '<tr><td class="w-s">' + sel('wish', w.id, 'cat', w.cat, CATS) + '</td><td>' + inp('wish', w.id, 'name', w.name, '名称') + '</td>' +
-      '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'where', w.where, '地址（空=用名称搜）') + previewBtn(w.where || w.name) + mapA(w.where || w.name) + '</div></td>' +
+      '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'where', w.where, '地址（空=用名称搜）') + previewBtn('wish', w.id, w.where || w.name) + mapA(w.where || w.name) + '</div></td>' +
       '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'link', w.link, '小红书 / 攻略链接') + (isUrl(w.link) ? '<a class="map" href="' + esc(w.link) + '" target="_blank" rel="noopener">↗</a>' : '') + '</div></td>' +
       '<td>' + inp('wish', w.id, 'note', w.note, '备注 / 避雷') + '</td>' +
       '<td class="w-m">' + (placed >= 0 ? '<span class="pill">已排 Day ' + (placed + 1) + '</span>' : '<select data-act="toDay" data-id="' + w.id + '"><option value="">排进…</option>' + T.days.map(function (d, i) { return '<option value="' + d.id + '">Day ' + (i + 1) + '</option>'; }).join('') + '</select>') + '</td>' +
       '<td class="w-xs">' + xBtn('wish', w.id) + '</td></tr>';
   }).join('');
-  return '<div class="card"><div class="hd"><b>想去的地方</b><span class="meta">📍 打开 Google 地图 · 👁 下方预览 · 可直接粘贴 Google Maps 分享链接</span></div><div class="scroll"><table class="grid">' +
+  return '<div class="card"><div class="hd"><b>想去的地方</b><span class="meta">📍 打开 Google 地图 · 👁 在下方地图里看 · 灰点是还没排进日程的</span></div><div class="scroll"><table class="grid">' +
     (rows ? '<tr><th>分类</th><th>名称</th><th>地点</th><th>链接</th><th>备注</th><th>日程</th><th></th></tr>' + rows : '<tr><td class="empty">还没有。把收藏的餐厅、景点、店铺都丢进来吧。</td></tr>') +
-    '</table></div><button class="add" data-act="addwish">+ 想去</button></div>' + mapCard();
+    '</table></div><button class="add" data-act="addwish">+ 想去</button></div>';
 };
 V.bill = function () {
   var ms = T.members, curList = [T.base].concat(Object.keys(T.rates).filter(function (c) { return c !== T.base; }));
@@ -621,13 +819,31 @@ document.addEventListener('click', function (e) {
     addwish: function () { add('wish', {}); renderView(); var ins = $('#view').querySelectorAll('input[data-f=name]'); ins[ins.length - 1].focus(); },
     addbill: function () { add('bills', { cur: Object.keys(T.rates)[0] || T.base, payer: hasMe() ? ME : '', parts: T.members.map(function (m) { return m.id; }) }); renderView(); },
     delrate: function () { set('r|' + b.dataset.c, null); build(); renderView(); },
-    preview: function () { preview = b.dataset.w; renderView(); var mb = $('.mapbox'); if (mb) mb.scrollIntoView({ behavior: 'smooth', block: 'center' }); },
+    preview: function () {
+      var l = b.dataset.l;
+      if (l === 'items') { var it = find('items', id), di = T.days.findIndex(function (d) { return d.id === it.day; }); if (M.filter !== 'all' && M.filter !== di) M.filter = 'all'; }
+      else if (M.filter !== 'all') M.filter = 'all';
+      drawMap();
+      $('#mapCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      var mk = M.markers[l + id];
+      if (mk) { M.map.setView(mk.getLatLng(), Math.max(M.map.getZoom(), 15)); mk.openPopup(); }
+      else toast(G.inq[l + id] ? '正在定位，稍等一下…' : '还没定位到，可以在地图上点选');
+    },
+    pick: function () { startPick(b.dataset.l, id); },
+    unpick: function () { endPick(); },
+    kml: function () {
+      var k = downloadKml();
+      $('#kmlInfo').textContent = '已下载「' + (T.title || 'trip') + '.kml」，含 ' + k.ok + ' 个地点' + (k.miss ? '；还有 ' + k.miss + ' 个没定位的没放进去，先在地图上定位再导出' : '') + '。';
+      $('#kmlM').hidden = false;
+    },
     skin: function () { var s = ['paper', 'bold', 'night'], c = ls('gtrip:skin') || 'paper'; c = s[(s.indexOf(c) + 1) % s.length]; ls('gtrip:skin', c); document.documentElement.dataset.skin = c; },
     share: function () { $('#invCode').textContent = pretty(ROOM); $('#invLink').value = location.href.split('#')[0] + '#' + pretty(ROOM); $('#shareM').hidden = false; },
     io: function () { $('#ioM').hidden = false; }
   };
   if (acts[a]) acts[a]();
 });
+$('#mapDays').onclick = function (e) { var x = e.target.closest('[data-mf]'); if (!x) return; M.filter = x.dataset.mf === 'all' ? 'all' : +x.dataset.mf; drawMap(); };
+$('#kmlAgain').onclick = function () { downloadKml(); };
 $('#sync').onclick = function () { toast(this.title.replace(/\n/g, '  ')); };
 $('#homeBtn').onclick = function (e) { e.preventDefault(); location.hash = ''; };
 function inviteText() { return '一起编辑「' + (T.title || '我们的旅行') + '」行程 ✈\n邀请码：' + pretty(ROOM) + '\n' + $('#invLink').value; }
@@ -680,7 +896,7 @@ $('#lnForm').onsubmit = function (e) { e.preventDefault(); var r = norm($('#lnCo
 $('#lnCode').oninput = function () { $('#lnErr').textContent = ''; };
 $('#lnRecent').onclick = function (e) { var b = e.target.closest('button[data-r]'); if (!b) return; ls('gtrip:recent', JSON.stringify(lsj('gtrip:recent', []).filter(function (x) { return x.r !== b.dataset.r; }))); landing(); };
 function openRoom(r) {
-  Sync.stop(); ROOM = r; preview = '';
+  Sync.stop(); ROOM = r; M.filter = 'all'; M.fitKey = ''; G.q = []; G.inq = {}; if (M.pick) endPick();
   D = lsj('gtrip:doc:' + r, {}); ME = ls('gtrip:me:' + r) || '';
   if (ls('gtrip:new:' + r)) { ls('gtrip:new:' + r, null); if (!Object.keys(D).length) { seed(); setMe(ME); } }
   build(); persist();
