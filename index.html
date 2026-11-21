@@ -487,7 +487,7 @@ var M = { map: null, layer: null, filter: 'all', pick: null, markers: {}, fitKey
 function mapPoints() {
   var out = [];
   T.days.forEach(function (d, i) {
-    T.items.filter(function (it) { return it.day === d.id && String(it.where || '').trim(); }).forEach(function (it, j) {
+    dayItems(d.id).filter(function (it) { return String(it.where || '').trim(); }).forEach(function (it, j) {
       out.push({ l: 'items', r: it, raw: it.where, day: i, n: j + 1, label: it.what || it.where, sub: (it.time ? it.time + ' · ' : '') + 'Day ' + (i + 1) });
     });
   });
@@ -715,6 +715,24 @@ V.pack = function () {
     '</table></div><button class="add" data-act="addcat">+ 新分类</button></div>';
 };
 function dayDate(i) { if (!T.start) return ''; var d = new Date(T.start + 'T00:00:00'); if (isNaN(d)) return ''; d.setDate(d.getDate() + i); return (d.getMonth() + 1) + '/' + d.getDate() + ' 周' + '日一二三四五六'[d.getDay()]; }
+// 时间 → 当天分钟数；支持 9:30 / 09：30 / 930 / 9点半 / 下午3点 / 14:00-16:00（取开头）
+function timeKey(t) {
+  t = String(t || '').trim(); if (!t) return null;
+  var m = t.match(/(\d{1,2})\s*[:：.点时]\s*(\d{1,2}|半)?/) || t.match(/^(\d{1,2})(\d{2})\b/) || t.match(/(\d{1,2})(?!\d)/);
+  if (!m) return null;
+  var h = +m[1], mi = m[2] === '半' ? 30 : +(m[2] || 0);
+  if (/下午|晚上|傍晚|pm/i.test(t) && h < 12) h += 12;
+  if (/凌晨|早上|上午|am/i.test(t) && h === 12) h = 0;
+  return h > 24 || mi > 59 ? null : h * 60 + mi;
+}
+// 当天的安排按时间排序；没填时间的跟在原来的前一项后面
+function dayItems(dayId) {
+  var last = -1;
+  return T.items.filter(function (it) { return it.day === dayId; }).map(function (it, i) {
+    var k = timeKey(it.time); if (k == null) k = last; else last = k;
+    return { it: it, k: k, i: i };
+  }).sort(function (a, b) { return a.k - b.k || a.i - b.i; }).map(function (x) { return x.it; });
+}
 function wishPick(dayId) { var w = T.wish.filter(function (x) { return x.name; }); if (!w.length) return ''; return '<select class="btn sm" data-act="pickwish" data-id="' + dayId + '"><option value="">从「想去」选…</option>' + w.map(function (x) { return '<option value="' + x.id + '">' + esc(x.cat + ' · ' + x.name) + '</option>'; }).join('') + '</select>'; }
 V.plan = function () {
   var book = T.book.map(function (b) {
@@ -724,7 +742,7 @@ V.plan = function () {
       '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? previewBtn('book', b.id, b.detail) + mapA(b.detail, '酒店位置', b) : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
   }).join('');
   var days = T.days.map(function (d, i) {
-    var its = T.items.filter(function (it) { return it.day === d.id; });
+    var its = dayItems(d.id);
     var route = gRoute(its.map(function (it) { return [it.where, it]; }));
     return '<div class="dayhd"><span class="lbl">Day ' + (i + 1) + '</span><span class="meta">' + dayDate(i) + '</span>' +
       '<input data-l="days" data-id="' + d.id + '" data-f="label" value="' + esc(d.label) + '" placeholder="这天的主题，如 浅草 + 晴空塔">' +
@@ -845,7 +863,7 @@ document.addEventListener('change', function (e) {
   if (el.tagName === 'INPUT' && el.dataset.l) {
     var f = el.dataset.f, l = el.dataset.l;
     if (l === 'members') { renderMems(); renderView(); }
-    else if (f === 'where' || f === 'link' || (l === 'book' && f === 'detail') || (l === 'wish' && f === 'name')) renderView();
+    else if (f === 'where' || f === 'link' || (l === 'items' && f === 'time') || (l === 'book' && f === 'detail') || (l === 'wish' && f === 'name')) renderView();
   }
 });
 // 改「想去」的名称/地点时，同步到已排进日程的那一项（只同步没被单独改过的字段）
