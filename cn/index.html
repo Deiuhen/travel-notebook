@@ -118,6 +118,11 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 .legs>div a{padding:6px 8px;border-radius:6px;font-size:13px;color:var(--t1);text-decoration:none;white-space:nowrap}
 .legs>div a:hover{background:var(--bg)}
 .legs>div .meta{padding:4px 8px}
+.cellwrap.price input{min-width:4.5em}
+.grid td.w-d{min-width:10em}
+.booktbl{min-width:860px}
+.cellwrap.price select{width:auto;flex:none}
+.btag{display:inline-block;font-size:10px;color:var(--t3);border:1px solid var(--ln);border-radius:8px;padding:0 5px;margin-left:4px;white-space:nowrap}
 .mapdays{display:flex;gap:4px;flex-wrap:wrap;flex:1}
 .mapdays button{border:1px solid var(--ln);background:var(--sf);border-radius:999px;font-size:11px;padding:2px 9px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .mapdays button.on{border-color:var(--bd);font-weight:600;background:var(--al)}
@@ -252,9 +257,9 @@ var D = {}, T = null, ROOM = '', ME = '';
 var LISTS = ['members', 'pack', 'book', 'days', 'items', 'wish', 'bills'];
 var DEF = {
   members: { name: '' }, pack: { cat: '', name: '', shared: false, st: {}, who: '' },
-  book: { type: '其他', date: '', detail: '', status: '未订', link: '' }, days: { label: '' },
+  book: { type: '其他', date: '', detail: '', status: '未订', link: '', price: '', cur: '' }, days: { label: '' },
   items: { day: '', time: '', what: '', where: '', wish: '' }, wish: { cat: '玩', name: '', where: '', link: '', note: '' },
-  bills: { what: '', amt: '', cur: '', payer: '', parts: [] }
+  bills: { what: '', amt: '', cur: '', payer: '', parts: [], book: '', whatx: false }
 };
 var META = { title: '', place: '', start: '', end: '', mode: 'transit', base: 'CNY', notes: '' };
 function newer(a, b) { return !b || a[1] > b[1] || (a[1] === b[1] && a[2] > b[2]); }
@@ -328,14 +333,14 @@ function fromPlain(t) {
   var strip = function (x, keys) { var r = {}; keys.forEach(function (k) { if (x[k] !== undefined) r[k] = x[k]; }); r.id = x.id; return r; };
   (t.members || []).forEach(function (x) { add('members', strip(x, ['name']), o()); });
   (t.pack || []).forEach(function (x) { add('pack', strip(x, ['cat', 'name', 'shared', 'st', 'who']), o()); });
-  (t.book || []).forEach(function (x) { add('book', strip(x, ['type', 'date', 'detail', 'status', 'link']), o()); });
+  (t.book || []).forEach(function (x) { add('book', strip(x, ['type', 'date', 'detail', 'status', 'link', 'price', 'cur']), o()); });
   (t.days || []).forEach(function (d) {
     add('days', strip(d, ['label']), o());
     (d.items || []).forEach(function (it) { var r = strip(it, ['time', 'what', 'where', 'wish']); r.day = d.id; add('items', r, o()); });
   });
   (t.items || []).forEach(function (x) { add('items', strip(x, ['day', 'time', 'what', 'where', 'wish']), o()); });
   (t.wish || []).forEach(function (x) { add('wish', strip(x, ['cat', 'name', 'where', 'link', 'note']), o()); });
-  (t.bills || []).forEach(function (x) { add('bills', strip(x, ['what', 'amt', 'cur', 'payer', 'parts']), o()); });
+  (t.bills || []).forEach(function (x) { add('bills', strip(x, ['what', 'amt', 'cur', 'payer', 'parts', 'book', 'whatx']), o()); });
 }
 
 /* ================= 本地保存 ================= */
@@ -768,6 +773,45 @@ V.pack = function () {
     '<tr><th>物品</th><th class="w-s">类型</th>' + ms.map(function (m) { return '<th class="w-m">' + esc(m.name || '未命名') + (m.id === ME ? '（我）' : '') + '</th>'; }).join('') + '<th class="w-xs"></th></tr>' + rows +
     '</table></div><button class="add" data-act="addcat">+ 新分类</button></div>';
 };
+// 交通&住宿的「日期 / 时间」→ 可排序的分钟数；支持 12/20、12-20、12.20、12月20日、2026-12-20、Day 2 / 第2天，后面可带 09:30 / 下午3点
+function bookKey(s, type) {
+  s = String(s || '').trim(); if (!s) return null;
+  var st = T.start ? new Date(T.start + 'T00:00:00') : null; if (st && isNaN(st)) st = null;
+  var y, mo, d, rest, m;
+  if ((m = s.match(/(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else if ((m = s.match(/(\d{1,2})\s*[-/.月]\s*(\d{1,2})(?!\d)\s*[日号]?/))) {
+    mo = +m[1]; d = +m[2]; y = st ? st.getFullYear() : new Date().getFullYear();
+    if (st && mo < st.getMonth() + 1 - 6) y++; // 跨年的行程：1 月排在 12 月后面
+  } else if ((m = s.match(/(?:day|d|第)\s*(\d{1,2})\s*天?/i)) && st) {
+    var x = new Date(st); x.setDate(x.getDate() + (+m[1]) - 1); y = x.getFullYear(); mo = x.getMonth() + 1; d = x.getDate();
+  } else {
+    var tk = /[:：点时]/.test(s) ? timeKey(s) : null; return tk == null ? null : tk; // 只填了时间：当作出发当天
+  }
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  rest = s.slice(m.index + m[0].length);
+  var t = /[:：点时]/.test(rest) ? timeKey(rest) : null;
+  if (t == null) t = type === '去程' ? 0 : 1439; // 只填日期：去程排当天最前，其余排在当天有时间的项后面
+  return Date.UTC(y, mo - 1, d) / 60000 + t - (st ? Date.UTC(st.getFullYear(), st.getMonth(), st.getDate()) / 60000 : 0);
+}
+// 交通&住宿按日期时间排序；没填日期的跟在原来的前一项后面
+function bookSorted() {
+  var last = -Infinity;
+  return T.book.map(function (b, i) { var k = bookKey(b.date, b.type); if (k == null) k = last; else last = k; return { b: b, k: k, i: i }; })
+    .sort(function (a, b) { return (a.k === b.k ? 0 : a.k < b.k ? -1 : 1) || a.i - b.i; }).map(function (x) { return x.b; });
+}
+// 交通&住宿填了价格 → 账本里自动有一笔（双向同步金额和币种）
+function bookLabel(bk) { return bk.type + (String(bk.detail || '').trim() ? ' · ' + String(bk.detail).trim() : ''); }
+function syncBookBill(bk) {
+  if (!bk) return;
+  var linked = T.bills.filter(function (x) { return x.book === bk.id; });
+  linked.slice(1).forEach(function (x) { del('bills', x.id); }); // 两人同时填价格时可能重复，只留一笔
+  var bill = linked[0], price = String(bk.price || '').trim(), cur = (bk.cur || T.base);
+  if (!parseFloat(price.replace(/,/g, ''))) { if (bill) del('bills', bill.id); return; }
+  if (!bill) { add('bills', { what: bookLabel(bk), amt: price, cur: cur, payer: hasMe() ? ME : '', parts: T.members.map(function (m) { return m.id; }), book: bk.id }); return; }
+  if (bill.amt !== price) setF('bills', bill.id, 'amt', price);
+  if ((bill.cur || T.base) !== cur) setF('bills', bill.id, 'cur', cur);
+  if (!bill.whatx && bill.what !== bookLabel(bk)) setF('bills', bill.id, 'what', bookLabel(bk));
+}
 function dayDate(i) { if (!T.start) return ''; var d = new Date(T.start + 'T00:00:00'); if (isNaN(d)) return ''; d.setDate(d.getDate() + i); return (d.getMonth() + 1) + '/' + d.getDate() + ' 周' + '日一二三四五六'[d.getDay()]; }
 // 时间 → 当天分钟数；支持 9:30 / 09：30 / 930 / 9点半 / 下午3点 / 14:00-16:00（取开头）
 function timeKey(t) {
@@ -789,10 +833,12 @@ function dayItems(dayId) {
 }
 function wishPick(dayId) { var w = T.wish.filter(function (x) { return x.name; }); if (!w.length) return ''; return '<select class="btn sm" data-act="pickwish" data-id="' + dayId + '"><option value="">从「想去」选…</option>' + w.map(function (x) { return '<option value="' + x.id + '">' + esc(x.cat + ' · ' + x.name) + '</option>'; }).join('') + '</select>'; }
 V.plan = function () {
-  var book = T.book.map(function (b) {
-    return '<tr><td class="w-s">' + sel('book', b.id, 'type', b.type, ['去程', '住宿', '返程', '交通', '门票', '其他']) + '</td><td class="w-m">' + inp('book', b.id, 'date', b.date, '日期') + '</td>' +
-      '<td>' + inp('book', b.id, 'detail', b.detail, b.type === '住宿' ? '酒店名 / 地址' : '车次 / 航班') + '</td>' +
+  var cl = allCurs();
+  var book = bookSorted().map(function (b) {
+    return '<tr><td class="w-s">' + sel('book', b.id, 'type', b.type, ['去程', '住宿', '返程', '交通', '门票', '其他']) + '</td><td class="w-m">' + inp('book', b.id, 'date', b.date, '如 12/20 09:30') + '</td>' +
+      '<td class="w-d">' + inp('book', b.id, 'detail', b.detail, b.type === '住宿' ? '酒店名 / 地址' : '车次 / 航班') + '</td>' +
       '<td class="w-s">' + sel('book', b.id, 'status', b.status, ['未订', '已订', '已付', '已取消']) + '</td>' +
+      '<td class="w-m"><div class="cellwrap price">' + inp('book', b.id, 'price', b.price, '价格') + (cl.length > 1 ? sel('book', b.id, 'cur', b.cur || T.base, cl) : '<span class="meta">' + esc(T.base) + '</span>') + '</div></td>' +
       '<td class="w-l"><div class="cellwrap">' + inp('book', b.id, 'link', b.link, '订单链接') + (isUrl(b.link) ? '<a class="map" href="' + esc(b.link) + '" target="_blank" rel="noopener">↗</a>' : '') + (b.type === '住宿' ? previewBtn('book', b.id, b.detail) + mapA(b.detail, '酒店位置', b) : '') + '</div></td><td class="w-xs">' + xBtn('book', b.id) + '</td></tr>';
   }).join('');
   var days = T.days.map(function (d, i) {
@@ -807,7 +853,7 @@ V.plan = function () {
       }).join('') + '</table>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="add" data-act="additem" data-id="' + d.id + '">+ 安排</button>' + wishPick(d.id) + '</div>';
   }).join('');
-  return '<div class="card"><div class="hd"><b>交通 & 住宿</b><span class="meta">' + T.book.filter(function (b) { return b.status === '已订' || b.status === '已付'; }).length + ' / ' + T.book.length + ' 已搞定</span></div><div class="scroll"><table class="grid">' + book + '</table></div><button class="add" data-act="addbook">+ 一项</button></div>' +
+  return '<div class="card"><div class="hd"><b>交通 & 住宿</b><span class="meta">' + T.book.filter(function (b) { return b.status === '已订' || b.status === '已付'; }).length + ' / ' + T.book.length + ' 已搞定</span></div><div class="scroll"><table class="grid booktbl">' + (book ? '<tr><th>类型</th><th>日期 / 时间</th><th>详情</th><th>状态</th><th>价格 <span class="meta" title="填了价格会自动记进账本">→ 账本</span></th><th>链接</th><th></th></tr>' + book : '') + '</table></div><button class="add" data-act="addbook">+ 一项</button></div>' +
     '<div class="card"><div class="hd"><b>每日日程</b><span class="meta">路线方式 <select class="btn sm" id="modeSel">' + opts([['transit', '公共交通'], ['walking', '步行'], ['driving', '驾车'], ['bicycling', '骑行']], T.mode) + '</select></span></div>' + days + '<div class="dayhd"><button class="add" data-act="addday">+ 加一天</button></div></div>';
 };
 V.wish = function () {
@@ -829,7 +875,7 @@ V.wish = function () {
 V.bill = function () {
   var ms = T.members, curList = [T.base].concat(Object.keys(T.rates).filter(function (c) { return c !== T.base; }));
   var rows = T.bills.map(function (b) {
-    return '<tr><td>' + inp('bills', b.id, 'what', b.what, '项目') + '</td><td class="w-s">' + inp('bills', b.id, 'amt', b.amt, '金额') + '</td>' +
+    return '<tr><td><div class="cellwrap">' + inp('bills', b.id, 'what', b.what, '项目') + (b.book && find('book', b.book) ? '<span class="btag" title="来自「行程 → 交通 & 住宿」，改金额两边会同步">🔗 交通住宿</span>' : '') + '</div></td><td class="w-s">' + inp('bills', b.id, 'amt', b.amt, '金额') + '</td>' +
       '<td class="w-s">' + sel('bills', b.id, 'cur', b.cur || T.base, curList) + '</td>' +
       '<td class="w-m">' + sel('bills', b.id, 'payer', b.payer, [['', '— 谁付 —']].concat(ms.map(function (m) { return [m.id, m.name || '未命名']; }))) + '</td>' +
       '<td><div class="parts">' + ms.map(function (m) { var on = b.parts.indexOf(m.id) >= 0; return '<label class="' + (on ? 'on' : '') + '"><input type="checkbox" data-act="part" data-id="' + b.id + '" data-m="' + m.id + '"' + (on ? ' checked' : '') + '>' + esc(m.name || '未命名') + '</label>'; }).join('') + '</div></td>' +
@@ -890,7 +936,18 @@ document.addEventListener('input', function (e) {
   if (el.dataset.rate) { set('r|' + el.dataset.rate, el.value); build(); refreshSettle(); refreshConv(); var iv = el.parentNode.querySelector('.inv'), r = parseFloat(el.value); if (iv) iv.textContent = r > 0 ? '1 ' + T.base + ' = ' + fmtRate(1 / r) : '未填'; return; }
   if (el.id === 'convAmt') { var cv = convState(); cv.a = el.value; ls('ctrip:conv:' + ROOM, JSON.stringify(cv)); refreshConv(); return; }
   if (el.dataset.l === 'wish' && (el.dataset.f === 'name' || el.dataset.f === 'where')) { var ow = find('wish', el.dataset.id), old = ow && { name: ow.name, key: String(ow.where || ow.name || '').trim() }; setF('wish', el.dataset.id, el.dataset.f, el.value); if (old) syncWish(find('wish', el.dataset.id), old); return; }
-  if (el.dataset.l && el.dataset.f && el.tagName === 'INPUT') { setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value); if (el.dataset.l === 'bills') refreshSettle(); }
+  if (el.dataset.l && el.dataset.f && el.tagName === 'INPUT') {
+    setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value);
+    if (el.dataset.l === 'book' && (el.dataset.f === 'price' || el.dataset.f === 'detail')) syncBookBill(find('book', el.dataset.id));
+    if (el.dataset.l === 'bills') {
+      var bl = find('bills', el.dataset.id);
+      if (bl && bl.book && find('book', bl.book)) {
+        if (el.dataset.f === 'amt') setF('book', bl.book, 'price', el.value);
+        if (el.dataset.f === 'what') setF('bills', bl.id, 'whatx', true);
+      }
+      refreshSettle();
+    }
+  }
 });
 document.addEventListener('change', function (e) {
   var el = e.target, a = el.dataset.act; if (!T) return;
@@ -912,11 +969,16 @@ document.addEventListener('change', function (e) {
     if (Array.isArray(w.ll) && w.llq === String(ni.where).trim()) { ni.ll = w.ll; ni.llq = w.llq; ni.llm = w.llm; } // 带上已定位/校准的坐标
     add('items', ni); renderView(); if (a === 'toDay') toast('已排进日程'); return;
   }
-  if (el.tagName === 'SELECT' && el.dataset.l) { setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value); renderView(); return; }
+  if (el.tagName === 'SELECT' && el.dataset.l) {
+    setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value);
+    if (el.dataset.l === 'book' && (el.dataset.f === 'cur' || el.dataset.f === 'type')) syncBookBill(find('book', el.dataset.id));
+    if (el.dataset.l === 'bills' && el.dataset.f === 'cur') { var bl2 = find('bills', el.dataset.id); if (bl2 && bl2.book && find('book', bl2.book)) setF('book', bl2.book, 'cur', el.value); }
+    renderView(); return;
+  }
   if (el.tagName === 'INPUT' && el.dataset.l) {
     var f = el.dataset.f, l = el.dataset.l;
     if (l === 'members') { renderMems(); renderView(); }
-    else if (f === 'where' || f === 'link' || (l === 'items' && f === 'time') || (l === 'book' && f === 'detail') || (l === 'wish' && f === 'name')) renderView();
+    else if (f === 'where' || f === 'link' || (l === 'items' && f === 'time') || (l === 'book' && (f === 'date' || f === 'price')) || (l === 'book' && f === 'detail') || (l === 'wish' && f === 'name')) renderView();
   }
 });
 // 改「想去」的名称/地点时，同步到已排进日程的那一项（只同步没被单独改过的字段）
@@ -976,6 +1038,8 @@ document.addEventListener('click', function (e) {
       var label = it.name || it.what || it.detail || it.label || '';
       var nonEmpty = label || (l === 'days' && T.items.some(function (x) { return x.day === id; }));
       if (nonEmpty && !confirm('删除「' + (label || '这一天及其安排') + '」？大家那边也会一起删掉。')) return;
+      if (l === 'book') T.bills.filter(function (x) { return x.book === id; }).forEach(function (x) { del('bills', x.id); });
+      if (l === 'bills' && it.book && find('book', it.book)) setF('book', it.book, 'price', '');
       del(l, id); renderMems(); renderView();
     },
     addmem: function () { var nid = add('members', { name: '' }); if (!hasMe()) setMe(nid); renderMems(); renderView(); var ins = $('#mems').querySelectorAll('input'); ins[ins.length - 1].focus(); },

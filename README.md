@@ -12,7 +12,7 @@
 
 ## 🚄 国内版（高德地图）
 
-`cn/index.html`：同一套功能，换成国内游玩用的高德地图。
+`cn/index.html`：同一套功能，换成国内游玩用的高德地图。它由 `tools/build-cn.py` 从出国版生成，改功能时改 `index.html` 后运行 `python3 tools/build-cn.py index.html cn/index.html`。
 
 - 行程地图用高德底图，坐标统一是高德的 GCJ-02
 - 📍 在高德地图搜索地点；手动校准过的用 📌 按坐标打开
