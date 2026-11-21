@@ -562,6 +562,9 @@ function startPick(l, id) {
 function endPick() { M.pick = null; $('#pickBar').hidden = true; $('#mapCard').classList.remove('picking'); }
 function setGeo(l, id, ll, how, key) {
   set('F|' + l + '|' + id + '|ll', ll); set('F|' + l + '|' + id + '|llq', key); setF(l, id, 'llm', how);
+  if (l === 'wish' && how === 'manual') T.items.forEach(function (it) { // 校准「想去」时，已排进日程的那一项一起改
+    if (it.wish === id && String(it.where || '').trim() === key) { set('F|items|' + it.id + '|ll', ll); set('F|items|' + it.id + '|llq', key); setF('items', it.id, 'llm', how); }
+  });
   rerender();
 }
 function unpin(l, id) { if (M.map) M.map.closePopup(); set('F|' + l + '|' + id + '|llm', ''); setF(l, id, 'llq', ''); rerender(); }
@@ -745,7 +748,7 @@ V.wish = function () {
       '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'where', w.where, '地址（空=用名称搜）') + previewBtn('wish', w.id, w.where || w.name) + mapA(w.where || w.name, '', w) + '</div></td>' +
       '<td class="w-l"><div class="cellwrap">' + inp('wish', w.id, 'link', w.link, '小红书 / 攻略链接') + (isUrl(w.link) ? '<a class="map" href="' + esc(w.link) + '" target="_blank" rel="noopener">↗</a>' : '') + '</div></td>' +
       '<td>' + inp('wish', w.id, 'note', w.note, '备注 / 避雷') + '</td>' +
-      '<td class="w-m">' + (placed >= 0 ? '<span class="pill">已排 Day ' + (placed + 1) + '</span>' : '<select data-act="toDay" data-id="' + w.id + '"><option value="">排进…</option>' + T.days.map(function (d, i) { return '<option value="' + d.id + '">Day ' + (i + 1) + '</option>'; }).join('') + '</select>') + '</td>' +
+      '<td class="w-m">' + (it ? '<select data-act="moveWish" data-id="' + w.id + '" title="改到其他天，或取消排期">' + T.days.map(function (d, i) { return '<option value="' + d.id + '"' + (i === placed ? ' selected' : '') + '>已排 Day ' + (i + 1) + '</option>'; }).join('') + (placed < 0 ? '<option value="" selected>已排（那天已删）</option>' : '') + '<option value="__un">↩ 取消排期</option></select>' : '<select data-act="toDay" data-id="' + w.id + '"><option value="">排进…</option>' + T.days.map(function (d, i) { return '<option value="' + d.id + '">Day ' + (i + 1) + '</option>'; }).join('') + '</select>') + '</td>' +
       '<td class="w-xs">' + xBtn('wish', w.id) + '</td></tr>';
   }).join('');
   return '<div class="card"><div class="hd"><b>想去的地方</b><span class="meta">📍 打开 Google 地图 · 👁 在下方地图里看 · 灰点是还没排进日程的</span></div><div class="scroll"><table class="grid">' +
@@ -815,6 +818,7 @@ document.addEventListener('input', function (e) {
   if (el.dataset.meta) { setM(el.dataset.meta, el.value); if (el.dataset.meta === 'title') document.title = el.value || '出国旅行手账'; if (el.dataset.meta === 'start') renderView(); return; }
   if (el.dataset.rate) { set('r|' + el.dataset.rate, el.value); build(); refreshSettle(); refreshConv(); var iv = el.parentNode.querySelector('.inv'), r = parseFloat(el.value); if (iv) iv.textContent = r > 0 ? '1 ' + T.base + ' = ' + fmtRate(1 / r) : '未填'; return; }
   if (el.id === 'convAmt') { var cv = convState(); cv.a = el.value; ls('gtrip:conv:' + ROOM, JSON.stringify(cv)); refreshConv(); return; }
+  if (el.dataset.l === 'wish' && (el.dataset.f === 'name' || el.dataset.f === 'where')) { var ow = find('wish', el.dataset.id), old = ow && { name: ow.name, key: String(ow.where || ow.name || '').trim() }; setF('wish', el.dataset.id, el.dataset.f, el.value); if (old) syncWish(find('wish', el.dataset.id), old); return; }
   if (el.dataset.l && el.dataset.f && el.tagName === 'INPUT') { setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value); if (el.dataset.l === 'bills') refreshSettle(); }
 });
 document.addEventListener('change', function (e) {
@@ -825,6 +829,12 @@ document.addEventListener('change', function (e) {
   if (el.id === 'showCur') { ls('gtrip:show:' + ROOM, el.value); refreshSettle(); return; }
   if (el.id === 'convCur') { var cv = convState(); cv.c = el.value; ls('gtrip:conv:' + ROOM, JSON.stringify(cv)); refreshConv(); return; }
   if (a === 'part') { var b = find('bills', el.dataset.id), m = el.dataset.m; setF('bills', b.id, 'parts', el.checked ? b.parts.concat(m) : b.parts.filter(function (x) { return x !== m; })); renderView(); return; }
+  if (a === 'moveWish') {
+    var its = T.items.filter(function (it) { return it.wish === el.dataset.id; });
+    if (el.value === '__un') { its.forEach(function (it) { del('items', it.id); }); toast('已从日程移除，仍保留在「想去」'); }
+    else if (el.value) { its.forEach(function (it) { setF('items', it.id, 'day', el.value); }); toast('已改到 ' + el.options[el.selectedIndex].text.replace('已排 ', '')); }
+    renderView(); return;
+  }
   if ((a === 'toDay' || a === 'pickwish') && el.value) {
     var w = find('wish', a === 'toDay' ? el.dataset.id : el.value), day = a === 'toDay' ? el.value : el.dataset.id;
     var ni = { day: day, what: w.name, where: w.where || w.name, wish: w.id };
@@ -838,6 +848,17 @@ document.addEventListener('change', function (e) {
     else if (f === 'where' || f === 'link' || (l === 'book' && f === 'detail') || (l === 'wish' && f === 'name')) renderView();
   }
 });
+// 改「想去」的名称/地点时，同步到已排进日程的那一项（只同步没被单独改过的字段）
+function syncWish(w, old) {
+  var key = String(w.where || w.name || '').trim();
+  T.items.filter(function (it) { return it.wish === w.id; }).forEach(function (it) {
+    if (it.what === old.name) setF('items', it.id, 'what', w.name);
+    if (String(it.where || '').trim() === old.key) {
+      setF('items', it.id, 'where', key);
+      if (Array.isArray(w.ll) && w.llq === key) { setF('items', it.id, 'll', w.ll); setF('items', it.id, 'llq', w.llq); setF('items', it.id, 'llm', w.llm); }
+    }
+  });
+}
 function refreshConv() { var o = $('#convOut'); if (o) o.innerHTML = convHtml(); }
 function guessRate(n) { var a = CURS[n], b = CURS[T.base]; return a && b ? fmtRate(a / b) : ''; }
 // 换主币种：已有汇率整体换算到新主币种，旧主币种自动变成一个外币
