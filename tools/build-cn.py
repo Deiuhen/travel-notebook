@@ -183,6 +183,206 @@ rep(".lmap{height:420px;background:var(--bg);z-index:0}",
     ".lmap{height:420px;background:var(--bg);z-index:0}\n.legs{position:relative}\n.legs summary{list-style:none;cursor:pointer}\n.legs summary::-webkit-details-marker{display:none}\n.legs>div{position:absolute;right:0;top:calc(100% + 4px);z-index:5;background:var(--sf);border:1px solid var(--ln);border-radius:var(--r);box-shadow:0 6px 20px rgba(0,0,0,.12);padding:6px;min-width:220px;display:flex;flex-direction:column;gap:2px}\n.legs>div a{padding:6px 8px;border-radius:6px;font-size:13px;color:var(--t1);text-decoration:none;white-space:nowrap}\n.legs>div a:hover{background:var(--bg)}\n.legs>div .meta{padding:4px 8px}")
 
 assert 'google' not in re.sub(r'kml[\s\S]*?\n', '', '').lower()
+
+# ================= 高德 JS API Key：联想输入 + 精确定位 + 可分享给本行程 =================
+def cut(start, end, new):
+    global s
+    a = s.index(start); b = s.index(end, a)
+    s = s[:a] + new + s[b:]
+
+# 1) Key 存取 + 按需加载 JS API
+rep("function amapKey() { return (ls('ctrip:amapkey') || '').trim(); }", r"""/* 高德 Web端(JS API) Key：默认只存本机；勾选分享后存进本行程（随行程一起加密） */
+function amapCfg() {
+  var loc = null; try { loc = JSON.parse(ls('ctrip:amap') || 'null'); } catch (e) { }
+  if (loc && loc.k) return { k: loc.k, c: loc.c || '', from: 'local' };
+  var t = T && T.amapKey; if (t && t.k) return { k: t.k, c: t.c || '', from: 'trip' };
+  return null;
+}
+function amapKey() { var c = amapCfg(); return c ? c.k : ''; }
+var AM = { p: null, k: '', err: '' };
+function amapReady() {
+  var c = amapCfg(); if (!c) return Promise.resolve(null);
+  if (AM.k && AM.k !== c.k) return Promise.resolve(null); // 已加载过别的 Key，要刷新页面
+  if (AM.p) return AM.p;
+  AM.k = c.k;
+  AM.p = new Promise(function (res) {
+    window._AMapSecurityConfig = { securityJsCode: c.c };
+    var sc = document.createElement('script');
+    sc.src = 'https://webapi.amap.com/maps?v=2.0&key=' + encodeURIComponent(c.k) + '&plugin=AMap.AutoComplete,AMap.PlaceSearch';
+    sc.onload = function () { res(window.AMap || null); }; sc.onerror = function () { AM.err = 'JS API 加载失败'; res(null); };
+    document.head.appendChild(sc);
+  });
+  return AM.p;
+}
+function amapCall(fn) { // 包一层超时
+  return amapReady().then(function (A) {
+    if (!A) return null;
+    return new Promise(function (res) { var done = false; setTimeout(function () { if (!done) { done = true; res(null); } }, 8000); fn(A, function (v) { if (!done) { done = true; res(v); } }); });
+  });
+}
+function amapErr(r, st) { AM.err = typeof r === 'string' ? r : (r && r.info) || st; return null; }
+function llOf(loc) { return loc && typeof loc.lng === 'number' ? [+loc.lat.toFixed(6), +loc.lng.toFixed(6)] : null; }
+/* 地名 → 精确 POI；false = 高德确认没有结果，null = 出错 */
+function amapSearch(kw, city) {
+  return amapCall(function (A, done) {
+    new A.PlaceSearch({ city: city || '全国', pageSize: 1, pageIndex: 1 }).search(kw, function (st, r) {
+      if (st === 'complete' && r.poiList && r.poiList.pois.length) { var p = r.poiList.pois[0]; done({ ll: llOf(p.location), name: p.name }); }
+      else if (st === 'no_data') done(false); else done(amapErr(r, st));
+    });
+  });
+}
+function amapTips(kw, city) {
+  return amapCall(function (A, done) {
+    new A.AutoComplete({ city: city || '全国' }).search(kw, function (st, r) {
+      if (st === 'complete') done((r.tips || []).filter(function (t) { return t.name; }).slice(0, 8));
+      else if (st === 'no_data') done([]); else done(amapErr(r, st));
+    });
+  });
+}""")
+
+# 2) 定位：有 Key 用 JS API 的 PlaceSearch
+cut("  if (key) {\n    try {\n      var u = 'https://restapi.amap.com", "  var c0 = Array.isArray(T.placeLL)", r"""  if (key) {
+    var hit = await amapSearch(r0, city && raw ? city : '');
+    if (hit && hit.ll) return hit.ll;
+    if (hit === false) return null;
+    // Key 无效 / 超额：退回免费定位
+  }
+""")
+
+# 3) 联想选中的 POI 和手动校准一样算「精确」：高德链接按坐标 + 名称打开
+rep("function pinned(rec, raw) { return !!(rec && rec.llm === 'manual' &&", "function pinned(rec, raw) { return !!(rec && (rec.llm === 'manual' || rec.llm === 'poi') &&")
+rep("  if (l === 'wish' && how === 'manual') T.items.forEach(", "  if (l === 'wish' && (how === 'manual' || how === 'poi')) T.items.forEach(")
+rep("📌 已手动校准，高德链接和路线都按这个位置 · ", "' + (p.r.llm === 'poi' ? '📌 高德精确位置' : '📌 已手动校准，高德链接和路线都按这个位置') + ' · ")
+rep("p.r.llm !== 'manual' && p.r.llq", "p.r.llm !== 'manual' && p.r.llm !== 'poi' && p.r.llq")
+
+# 4) Key 设置弹窗
+rep('<div class="modal" id="shareM" hidden>', """<div class="modal" id="amapM" hidden><div class="card">
+  <div class="hd"><b>高德地图 Key</b><span class="meta" id="amapState"></span><button class="x" data-close>×</button></div>
+  <div class="bd">
+    <p class="meta" style="margin-top:0">配上后，「想去」「日程」「住宿」里输地点名会自动联想，选中就记下高德的精确位置，地图定位也更准。不配也能用。</p>
+    <ol class="steps">
+      <li>登录 <a href="https://console.amap.com/dev/key/app" target="_blank" rel="noopener">高德开放平台</a> → 应用管理 → 我的应用 → 创建新应用</li>
+      <li>在应用里点「添加 Key」，服务平台选 <b>Web端(JS API)</b></li>
+      <li>域名白名单填 <code id="amapHost"></code> <button class="btn sm" id="amapCopyHost">复制</button></li>
+      <li>提交后把 <b>Key</b> 和 <b>安全密钥</b> 粘到下面，点保存</li>
+    </ol>
+    <div class="row"><input class="kin" id="amapK" placeholder="Key" autocomplete="off" spellcheck="false"><input class="kin" id="amapC" placeholder="安全密钥" autocomplete="off" spellcheck="false"></div>
+    <label class="row" style="cursor:pointer"><input type="checkbox" id="amapShare"> <b>分享给本行程</b> <span class="meta">同行程的人都能用，消耗你的额度</span></label>
+    <div class="row"><button class="btn p" id="amapSave">保存</button><button class="btn" id="amapClear">清除</button><span class="meta" id="amapMsg"></span></div>
+    <p class="meta">🔒 默认只存在这台设备上；勾选分享后加密存进本行程，只有拿到邀请码/链接的人能用。</p>
+  </div>
+</div></div>
+<div id="sugg" hidden></div>
+<div class="modal" id="shareM" hidden>""")
+rep(".lmap{height:420px;background:var(--bg);z-index:0}", """.lmap{height:420px;background:var(--bg);z-index:0}
+.kin{flex:1;min-width:12em;border:1px solid var(--ln);background:var(--bg);border-radius:6px;padding:7px 9px;outline:none;font:13px ui-monospace,Menlo,monospace}
+#amapM code{background:var(--bg);padding:1px 6px;border-radius:4px}
+#sugg{position:fixed;z-index:20;background:var(--sf);border:1px solid var(--ln);border-radius:var(--r);box-shadow:0 8px 24px rgba(0,0,0,.14);padding:4px;max-height:300px;overflow:auto;min-width:240px}
+#sugg .si{padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13px;line-height:1.35}
+#sugg .si small{display:block;color:var(--t3);font-size:11px}
+#sugg .si.on,#sugg .si:hover{background:var(--al)}
+#sugg .sf{padding:3px 10px;font-size:10px;color:var(--t3);text-align:right}""")
+
+cut("    amapkey: function () {", "    kml: function () {", r"""    amapkey: function () { openAmap(); },
+""")
+
+rep("function refreshConv() {", r"""function openAmap() {
+  var c = amapCfg(), loc = c && c.from === 'local', tk = T.amapKey && T.amapKey.k;
+  $('#amapHost').textContent = location.hostname || 'deiuhen.github.io';
+  $('#amapK').value = c ? c.k : ''; $('#amapC').value = c ? c.c : '';
+  $('#amapShare').checked = !!(tk && c && tk === c.k);
+  $('#amapState').textContent = !c ? '' : loc ? (tk === c.k ? '已分享给本行程' : '只在这台设备上') : '正在用旅伴分享的 Key';
+  $('#amapMsg').textContent = AM.k && c && AM.k !== c.k ? '换了 Key，刷新页面后生效' : '';
+  $('#amapM').hidden = false;
+}
+function amapRelocate() { // 用 Key 重新定位所有「自动定位」的点
+  mapPoints().forEach(function (p) { if (p.r.llm !== 'manual' && p.r.llm !== 'poi' && p.r.llq) set('F|' + p.l + '|' + p.r.id + '|llq', ''); });
+  set('m|placeLLq', ''); build(); M.fitKey = ''; rerender();
+}
+$('#amapCopyHost').onclick = function () { copy($('#amapHost').textContent); };
+$('#amapSave').onclick = async function () {
+  var k = $('#amapK').value.trim(), c = $('#amapC').value.trim(), sh = $('#amapShare').checked, msg = $('#amapMsg');
+  if (!/^[0-9a-f]{32}$/i.test(k)) { msg.textContent = 'Key 应该是 32 位字母数字'; return; }
+  if (!c) { msg.textContent = '还要填安全密钥（和 Key 在同一行）'; return; }
+  ls('ctrip:amap', JSON.stringify({ k: k, c: c }));
+  if (sh) setM('amapKey', { k: k, c: c }); else if (T.amapKey && T.amapKey.k === k) setM('amapKey', null);
+  if (AM.k && AM.k !== k) { msg.innerHTML = '已保存，<a href="#" onclick="location.reload();return false">刷新页面</a>后生效'; return; }
+  msg.textContent = '检测中…'; AM.err = '';
+  var t = await amapTips('天安门', '北京');
+  if (t && t.length) {
+    msg.textContent = '✅ Key 可用' + (sh ? '，已分享给本行程' : '');
+    $('#amapState').textContent = sh ? '已分享给本行程' : '只在这台设备上';
+    amapRelocate();
+  } else {
+    var e = String(AM.err || ''), why = /DOMAIN/i.test(e) ? '域名白名单里要有 ' + (location.hostname || '') : /SCODE|SECURITY/i.test(e) ? '安全密钥不对' : /PLAT_NOMATCH/i.test(e) ? '服务平台要选「Web端(JS API)」，不是 Web 服务' : /INVALID_USER_KEY/i.test(e) ? 'Key 不对' : /OVER|LIMIT/i.test(e) ? '今天的额度用完了' : e || '连不上高德';
+    msg.textContent = '❌ ' + why + (e && why !== e ? '（' + e + '）' : '');
+  }
+};
+$('#amapClear').onclick = function () {
+  var c = amapCfg(); ls('ctrip:amap', null);
+  if (c && T.amapKey && T.amapKey.k === c.k && confirm('这个 Key 也分享在本行程里，要一起取消分享吗？')) setM('amapKey', null);
+  $('#amapK').value = ''; $('#amapC').value = ''; $('#amapShare').checked = false;
+  $('#amapMsg').textContent = '已清除' + (AM.k ? '，刷新页面后完全停用' : ''); $('#amapState').textContent = amapCfg() ? '正在用旅伴分享的 Key' : '';
+  rerender();
+};
+
+/* 输入地点名 → 高德联想；选中就记下精确位置 */
+var SG = { el: null, tips: [], i: -1, t: 0, seq: 0 };
+function suggOk(el) {
+  if (!el || el.tagName !== 'INPUT' || !el.dataset.l) return false;
+  var l = el.dataset.l, f = el.dataset.f;
+  return (l === 'wish' && (f === 'name' || f === 'where')) || (l === 'items' && f === 'where') || (l === 'book' && f === 'detail' && (find('book', el.dataset.id) || {}).type === '住宿');
+}
+function hideSugg() { SG.el = null; SG.tips = []; SG.i = -1; $('#sugg').hidden = true; }
+function placeSugg() {
+  var el = SG.el, box = $('#sugg'); if (!el || !document.body.contains(el)) { hideSugg(); return; }
+  var r = el.getBoundingClientRect(); box.style.left = Math.max(8, Math.min(r.left, innerWidth - box.offsetWidth - 8)) + 'px';
+  box.style.top = (r.bottom + box.offsetHeight + 8 > innerHeight && r.top > box.offsetHeight ? r.top - box.offsetHeight - 4 : r.bottom + 4) + 'px';
+  box.style.minWidth = Math.max(240, r.width) + 'px';
+}
+function showSugg(el, tips) {
+  if (!tips || !tips.length) { hideSugg(); return; }
+  SG.el = el; SG.tips = tips; SG.i = -1;
+  $('#sugg').innerHTML = tips.map(function (t, i) { var sub = [Array.isArray(t.district) ? '' : t.district, Array.isArray(t.address) ? '' : t.address].filter(Boolean).join(' '); return '<div class="si" data-i="' + i + '">' + esc(t.name) + (llOf(t.location) ? '' : ' <span class="meta">（无坐标）</span>') + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</div>'; }).join('') + '<div class="sf">高德地图 · ↑↓ 选择 · 回车确定</div>';
+  $('#sugg').hidden = false; placeSugg();
+}
+function pickSugg(i) {
+  var t = SG.tips[i], el = SG.el; hideSugg(); if (!t || !el) return;
+  var l = el.dataset.l, id = el.dataset.id, f = el.dataset.f, r = find(l, id), ll = llOf(t.location); if (!r) return;
+  var key = t.name;
+  if (l === 'wish') {
+    var old = { name: r.name, key: String(r.where || r.name || '').trim() };
+    if (f === 'name') { setF('wish', id, 'name', t.name); key = String(r.where || '').trim() ? null : t.name; }
+    else { setF('wish', id, 'where', t.name); if (!String(r.name || '').trim()) setF('wish', id, 'name', t.name); }
+    syncWish(find('wish', id), old);
+  } else setF(l, id, f, t.name);
+  if (ll && key) { setGeo(l, id, ll, 'poi', key); toast('📌 已记下高德精确位置'); } else rerender();
+}
+document.addEventListener('input', function (e) {
+  var el = e.target; if (!T || !suggOk(el)) return;
+  clearTimeout(SG.t);
+  var v = el.value.trim(); if (!amapKey() || v.length < 2 || isUrl(v) || llFromUrl(v)) { hideSugg(); return; }
+  SG.t = setTimeout(function () {
+    var my = ++SG.seq, sig = sigOf(el);
+    amapTips(v, (T.place || '').trim()).then(function (tips) {
+      var a = document.activeElement; if (my !== SG.seq || !a || sigOf(a) !== sig) return;
+      showSugg(a, tips);
+    });
+  }, 250);
+});
+document.addEventListener('keydown', function (e) {
+  if ($('#sugg').hidden || e.target !== SG.el) return;
+  var n = SG.tips.length;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); SG.i = e.key === 'ArrowDown' ? (SG.i + 1) % n : (SG.i <= 0 ? n - 1 : SG.i - 1); $('#sugg').querySelectorAll('.si').forEach(function (x, i) { x.classList.toggle('on', i === SG.i); }); }
+  else if (e.key === 'Enter' && SG.i >= 0) { e.preventDefault(); pickSugg(SG.i); }
+  else if (e.key === 'Escape') hideSugg();
+}, true);
+$('#sugg').addEventListener('mousedown', function (e) { e.preventDefault(); var x = e.target.closest('.si'); if (x) pickSugg(+x.dataset.i); });
+document.addEventListener('focusout', function (e) { if (e.target === SG.el) setTimeout(function () { if (document.activeElement !== SG.el) hideSugg(); }, 120); });
+addEventListener('scroll', function () { if (SG.el) placeSugg(); }, true);
+addEventListener('resize', function () { if (SG.el) placeSugg(); });
+function refreshConv() {""")
+
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 open(dst, 'w', encoding='utf-8').write(s)
 left = [l for l in s.split('\n') if 'Google' in l or 'google.com' in l]
