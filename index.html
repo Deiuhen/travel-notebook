@@ -112,6 +112,24 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 .lri a span{color:var(--t3);font-family:ui-monospace,Menlo,monospace;font-size:12px}
 /* 行程地图 */
 .lmap{height:420px;background:var(--bg);z-index:0}
+.gbtn{opacity:.3;filter:grayscale(1)}
+.gbtn.has{opacity:1;filter:none;position:relative}
+.gbtn.has::after{content:'';position:absolute;top:2px;right:1px;width:6px;height:6px;border-radius:50%;background:var(--ac,#e8590c)}
+tr:hover .gbtn{opacity:.8;filter:none}
+.modal.guide{align-items:flex-start;overflow:auto}
+.modal.guide .card{max-width:720px;margin:4vh 0}
+.gtitle{font-size:20px;font-weight:700;line-height:1.3;margin:2px 0 4px}
+.gtitle .t{color:var(--t3);font-weight:600;margin-right:8px}
+.gsub{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;font-size:13px;color:var(--t2);margin-bottom:6px}
+.gsub a{color:inherit}
+.gsec{margin-top:14px}
+.gsec h4{margin:0 0 6px;font-size:14px}
+.gta{width:100%;min-height:64px;border:1px solid var(--ln);background:var(--bg);border-radius:var(--r);padding:9px 11px;font:14px/1.75 inherit;font-family:inherit;outline:none;resize:none;overflow:hidden}
+.gta:focus{border-color:var(--bd)}
+.glinks{display:flex;flex-direction:column;gap:4px;margin-top:6px;font-size:13px}
+.glinks a{word-break:break-all}
+.gnav{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--ln)}
+@media (max-width:600px){.modal.guide{padding:0}.modal.guide .card{margin:0;min-height:100%;border-radius:0}}
 .cellwrap.price input{min-width:4.5em}
 .grid td.w-d{min-width:10em}
 .booktbl{min-width:860px}
@@ -169,6 +187,11 @@ textarea{width:100%;min-height:55vh;border:0;outline:none;resize:vertical;line-h
 <div id="mems"></div>
 <nav id="tabs"></nav>
 <main id="view"></main>
+<div class="modal guide" id="guideM" hidden><div class="card">
+  <div class="hd"><b>📖 攻略</b><span class="meta" id="gPos"></span><button class="x" data-close>×</button></div>
+  <div class="bd" id="gBody"></div>
+  <div class="gnav"><button class="btn sm" data-act="gprev">‹ 上一项</button><span class="meta">内容自动保存，旅伴实时可见</span><button class="btn sm" data-act="gnext">下一项 ›</button></div>
+</div></div>
 <div class="card" id="mapCard" hidden>
   <div class="hd"><b>行程地图</b><div class="mapdays" id="mapDays"></div><button class="btn sm" data-act="kml" title="导出后导入 Google My Maps，手机 Google 地图里就能看到">导出到 Google My Maps</button></div>
   <div class="pickbar" id="pickBar" hidden></div>
@@ -252,7 +275,7 @@ var LISTS = ['members', 'pack', 'book', 'days', 'items', 'wish', 'bills'];
 var DEF = {
   members: { name: '' }, pack: { cat: '', name: '', shared: false, st: {}, who: '' },
   book: { type: '其他', date: '', detail: '', status: '未订', link: '', price: '', cur: '' }, days: { label: '' },
-  items: { day: '', time: '', what: '', where: '', wish: '' }, wish: { cat: '玩', name: '', where: '', link: '', note: '' },
+  items: { day: '', time: '', what: '', where: '', wish: '', guide: {} }, wish: { cat: '玩', name: '', where: '', link: '', note: '' },
   bills: { what: '', amt: '', cur: '', payer: '', parts: [], book: '', whatx: false }
 };
 var META = { title: '', place: '', start: '', end: '', mode: 'transit', base: 'CNY', notes: '' };
@@ -330,9 +353,9 @@ function fromPlain(t) {
   (t.book || []).forEach(function (x) { add('book', strip(x, ['type', 'date', 'detail', 'status', 'link', 'price', 'cur']), o()); });
   (t.days || []).forEach(function (d) {
     add('days', strip(d, ['label']), o());
-    (d.items || []).forEach(function (it) { var r = strip(it, ['time', 'what', 'where', 'wish']); r.day = d.id; add('items', r, o()); });
+    (d.items || []).forEach(function (it) { var r = strip(it, ['time', 'what', 'where', 'wish', 'guide']); r.day = d.id; add('items', r, o()); });
   });
-  (t.items || []).forEach(function (x) { add('items', strip(x, ['day', 'time', 'what', 'where', 'wish']), o()); });
+  (t.items || []).forEach(function (x) { add('items', strip(x, ['day', 'time', 'what', 'where', 'wish', 'guide']), o()); });
   (t.wish || []).forEach(function (x) { add('wish', strip(x, ['cat', 'name', 'where', 'link', 'note']), o()); });
   (t.bills || []).forEach(function (x) { add('bills', strip(x, ['what', 'amt', 'cur', 'payer', 'parts', 'book', 'whatx']), o()); });
 }
@@ -480,6 +503,7 @@ function gRoute(list) { // list: [[地点文字, 记录], ...]
   if (mid.length) u += '&waypoints=' + mid.map(encodeURIComponent).join('%7C');
   return u + '&travelmode=' + T.mode;
 }
+function legUrl(a, b) { return gRoute([[a.where, a], [b.where, b]]); }
 function mapA(where, t, rec) {
   if (!where || !String(where).trim()) return '<span class="map" style="opacity:.2">📍</span>';
   var pin = pinned(rec, where);
@@ -695,7 +719,7 @@ function renderMems() {
   }).join('') + '<button class="add" data-act="addmem">+ 旅伴</button>' + (me ? '' : '<span class="warn">← 点「是我」认领自己，或「+ 旅伴」加上你</span>');
 }
 function renderTabs() { $('#tabs').innerHTML = TABS.map(function (t) { return '<button data-tab="' + t[0] + '"' + (t[0] === tab ? ' class="on"' : '') + '>' + t[1] + '</button>'; }).join(''); }
-function renderView() { $('#view').innerHTML = V[tab](); drawMap(); }
+function renderView() { $('#view').innerHTML = V[tab](); drawMap(); refreshGuide(); }
 
 var V = {};
 V.pack = function () {
@@ -760,6 +784,56 @@ function syncBookBill(bk) {
   if ((bill.cur || T.base) !== cur) setF('bills', bill.id, 'cur', cur);
   if (!bill.whatx && bill.what !== bookLabel(bk)) setF('bills', bill.id, 'what', bookLabel(bk));
 }
+/* ================= 日程项攻略 ================= */
+var GS = [['go', '🚇', '怎么去', '比如：机场捷运 A1 直达车 → 台北车站，约 40 分钟，NT$150；出站跟着 Y 区地下街指示走…'],
+  ['todo', '✅', '要办的事', '比如：入境大厅 1F 的 7-11 买悠游卡并储值；台湾银行柜台换台币；领取 eSIM / 网卡…'],
+  ['photo', '📷', '怎么拍', '比如：下午 4–5 点顺光；站在对面人行道用广角拍整面墙；人站在墙左侧三分之一处…'],
+  ['note', '📝', '其他', '营业时间、门票、预约方式、注意事项、备用方案…'],
+  ['links', '🔗', '参考链接', '一行一个链接：小红书、博客、视频…']];
+var GD = { id: null };
+function hasGuide(it) { var g = it && it.guide || {}; return GS.some(function (x) { return String(g[x[0]] || '').trim(); }); }
+function guideBtn(it) { return '<button class="map gbtn' + (hasGuide(it) ? ' has' : '') + '" data-act="guide" data-id="' + it.id + '" title="' + (hasGuide(it) ? '查看攻略' : '写攻略：怎么去、要办的事、怎么拍…') + '">📖</button>'; }
+function markGuide(id) { var b = document.querySelector('.gbtn[data-id="' + id + '"]'), it = find('items', id); if (b && it) b.classList.toggle('has', hasGuide(it)); }
+function allItems() { var out = []; T.days.forEach(function (d, i) { dayItems(d.id).forEach(function (it) { out.push({ it: it, day: i }); }); }); return out; }
+function guideLinks(it) {
+  return String(it && it.guide && it.guide.links || '').split(/\s*\n\s*/).filter(function (x) { return x.trim(); }).map(function (x) {
+    var m = x.match(/https?:\/\/\S+/); if (!m) return '<span>' + esc(x) + '</span>';
+    var label = x.replace(m[0], '').trim() || m[0].replace(/^https?:\/\/(www\.)?/, '').slice(0, 60);
+    return '<a href="' + esc(m[0]) + '" target="_blank" rel="noopener">↗ ' + esc(label) + '</a>';
+  }).join('');
+}
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.max(64, el.scrollHeight + 2) + 'px'; }
+function guideHead(it) {
+  var list = allItems(), k = list.findIndex(function (x) { return x.it.id === it.id; }), cur = list[k], prev = k > 0 && list[k - 1].day === cur.day ? list[k - 1].it : null;
+  var leg = prev && String(prev.where || '').trim() && String(it.where || '').trim() ? legUrl(prev, it) : '';
+  $('#gPos').textContent = (k + 1) + ' / ' + list.length;
+  return '<div class="gtitle">' + (it.time ? '<span class="t">' + esc(it.time) + '</span>' : '') + esc(it.what || it.where || '未命名') + '</div>' +
+    '<div class="gsub"><span>Day ' + (cur.day + 1) + (dayDate(cur.day) ? ' · ' + dayDate(cur.day) : '') + '</span>' +
+    (String(it.where || '').trim() ? '<span>' + mapA(it.where, '', it) + ' ' + esc(isUrl(it.where) ? '地图链接' : it.where) + '</span>' : '') +
+    (leg ? '<a class="btn sm" href="' + esc(leg) + '" target="_blank" rel="noopener">🧭 从上一站「' + esc(prev.what || prev.where) + '」导航过来</a>' : '') + '</div>';
+}
+function openGuide(id) {
+  var it = find('items', id); if (!it) return;
+  GD.id = id;
+  var g = it.guide || {};
+  $('#gBody').innerHTML = '<div id="gHead">' + guideHead(it) + '</div>' + GS.map(function (x) {
+    return '<div class="gsec"><h4>' + x[1] + ' ' + x[2] + '</h4><textarea class="gta" data-l="items" data-id="' + id + '" data-f="guide|' + x[0] + '" placeholder="' + esc(x[3]) + '">' + esc(g[x[0]] || '') + '</textarea>' + (x[0] === 'links' ? '<div class="glinks" id="gLinks">' + guideLinks(it) + '</div>' : '') + '</div>';
+  }).join('');
+  $('#guideM').hidden = false;
+  $('#guideM').scrollTop = 0;
+  $('#gBody').querySelectorAll('.gta').forEach(autoGrow);
+}
+function refreshGuide() { // 旅伴改了内容：更新没在编辑的段落
+  if (!GD.id || $('#guideM').hidden) return;
+  var it = find('items', GD.id); if (!it) { $('#guideM').hidden = true; GD.id = null; return; }
+  $('#gHead').innerHTML = guideHead(it);
+  $('#gBody').querySelectorAll('.gta').forEach(function (el) {
+    var v = (it.guide || {})[el.dataset.f.split('|')[1]] || '';
+    if (el !== document.activeElement && el.value !== v) { el.value = v; autoGrow(el); }
+  });
+  var a = document.activeElement; if (!a || a.dataset.f !== 'guide|links') $('#gLinks').innerHTML = guideLinks(it);
+}
+function stepGuide(d) { var list = allItems(), k = list.findIndex(function (x) { return x.it.id === GD.id; }); var n = list[k + d]; if (n) openGuide(n.it.id); else toast(d < 0 ? '已经是第一项' : '已经是最后一项'); }
 function dayDate(i) { if (!T.start) return ''; var d = new Date(T.start + 'T00:00:00'); if (isNaN(d)) return ''; d.setDate(d.getDate() + i); return (d.getMonth() + 1) + '/' + d.getDate() + ' 周' + '日一二三四五六'[d.getDay()]; }
 // 时间 → 当天分钟数；支持 9:30 / 09：30 / 930 / 9点半 / 下午3点 / 14:00-16:00（取开头）
 function timeKey(t) {
@@ -797,7 +871,7 @@ V.plan = function () {
       (route ? '<a class="btn sm" href="' + esc(route) + '" target="_blank" rel="noopener" title="按顺序在 Google 地图规划路线">🧭 当天路线</a>' : '') +
       (T.days.length > 1 ? xBtn('days', d.id) : '') + '</div>' +
       '<table class="grid">' + its.map(function (it) {
-        return '<tr><td class="w-s">' + inp('items', it.id, 'time', it.time, '时间') + '</td><td>' + inp('items', it.id, 'what', it.what, '安排') + '</td>' +
+        return '<tr><td class="w-s">' + inp('items', it.id, 'time', it.time, '时间') + '</td><td><div class="cellwrap">' + inp('items', it.id, 'what', it.what, '安排') + guideBtn(it) + '</div></td>' +
           '<td class="w-l"><div class="cellwrap">' + inp('items', it.id, 'where', it.where, '地点 / 地址 / Maps 链接') + previewBtn('items', it.id, it.where) + mapA(it.where, '', it) + '</div></td><td class="w-xs">' + xBtn('items', it.id) + '</td></tr>';
       }).join('') + '</table>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><button class="add" data-act="additem" data-id="' + d.id + '">+ 安排</button>' + wishPick(d.id) + '</div>';
@@ -885,8 +959,9 @@ document.addEventListener('input', function (e) {
   if (el.dataset.rate) { set('r|' + el.dataset.rate, el.value); build(); refreshSettle(); refreshConv(); var iv = el.parentNode.querySelector('.inv'), r = parseFloat(el.value); if (iv) iv.textContent = r > 0 ? '1 ' + T.base + ' = ' + fmtRate(1 / r) : '未填'; return; }
   if (el.id === 'convAmt') { var cv = convState(); cv.a = el.value; ls('gtrip:conv:' + ROOM, JSON.stringify(cv)); refreshConv(); return; }
   if (el.dataset.l === 'wish' && (el.dataset.f === 'name' || el.dataset.f === 'where')) { var ow = find('wish', el.dataset.id), old = ow && { name: ow.name, key: String(ow.where || ow.name || '').trim() }; setF('wish', el.dataset.id, el.dataset.f, el.value); if (old) syncWish(find('wish', el.dataset.id), old); return; }
-  if (el.dataset.l && el.dataset.f && el.tagName === 'INPUT') {
+  if (el.dataset.l && el.dataset.f && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
     setF(el.dataset.l, el.dataset.id, el.dataset.f, el.value);
+    if (el.classList.contains('gta')) { autoGrow(el); if (el.dataset.f === 'guide|links') $('#gLinks').innerHTML = guideLinks(find('items', el.dataset.id)); markGuide(el.dataset.id); }
     if (el.dataset.l === 'book' && (el.dataset.f === 'price' || el.dataset.f === 'detail')) syncBookBill(find('book', el.dataset.id));
     if (el.dataset.l === 'bills') {
       var bl = find('bills', el.dataset.id);
@@ -915,6 +990,7 @@ document.addEventListener('change', function (e) {
   if ((a === 'toDay' || a === 'pickwish') && el.value) {
     var w = find('wish', a === 'toDay' ? el.dataset.id : el.value), day = a === 'toDay' ? el.value : el.dataset.id;
     var ni = { day: day, what: w.name, where: w.where || w.name, wish: w.id };
+    if (w.note || w.link) ni.guide = { note: w.note || '', links: w.link || '' }; // 「想去」的备注、链接带进攻略
     if (Array.isArray(w.ll) && w.llq === String(ni.where).trim()) { ni.ll = w.ll; ni.llq = w.llq; ni.llm = w.llm; } // 带上已定位/校准的坐标
     add('items', ni); renderView(); if (a === 'toDay') toast('已排进日程'); return;
   }
@@ -999,6 +1075,9 @@ document.addEventListener('click', function (e) {
     pdone: function () { var p = find('pack', id); setF('pack', id, 'st|done', !p.st.done); renderView(); },
     pshare: function () { var p = find('pack', id); setF('pack', id, 'shared', !p.shared); renderView(); },
     setstart: function () { var el = $('[data-meta=start]'); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); try { el.showPicker(); } catch (e) { } },
+    guide: function () { openGuide(id); },
+    gprev: function () { stepGuide(-1); },
+    gnext: function () { stepGuide(1); },
     addbook: function () { add('book', { type: '交通' }); renderView(); },
     addday: function () { add('days', {}); renderView(); },
     additem: function () { add('items', { day: id }); renderView(); },

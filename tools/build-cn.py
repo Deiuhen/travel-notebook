@@ -383,6 +383,15 @@ addEventListener('scroll', function () { if (SG.el) placeSugg(); }, true);
 addEventListener('resize', function () { if (SG.el) placeSugg(); });
 function refreshConv() {""")
 
+
+# 攻略页「从上一站导航」：高德两点导航
+rep("function previewBtn(", """function legUrl(a, b) {
+  var A = locOf(a.where, a), B = locOf(b.where, b);
+  if (!A || !B) return gSearch(b.where, b);
+  return aNav({ ll: A, name: aName(a.where, a) }, { ll: B, name: aName(b.where, b) });
+}
+function previewBtn(""")
+
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 open(dst, 'w', encoding='utf-8').write(s)
 left = [l for l in s.split('\n') if 'Google' in l or 'google.com' in l]
